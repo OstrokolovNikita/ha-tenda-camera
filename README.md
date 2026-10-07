@@ -8,7 +8,7 @@ Local Home Assistant integration for Tenda IP cameras.
 The integration talks directly to the camera on the LAN using the camera's
 local JSON RPC endpoint (`/RPC2`). It does not require TDSEE cloud access.
 
-## Current v0.5.0 scope
+## Current v0.6.0 scope
 
 The current milestone provides local RP7 V2.0 authentication, device discovery,
 two RTSP camera entities and writable configuration switches. All traffic stays
@@ -111,7 +111,7 @@ are not exposed as entities.
 
 ## Tenda Camera dashboard card
 
-v0.5.0 bundles a Home Assistant custom card with the integration itself, so no
+v0.6.0 bundles a Home Assistant custom card with the integration itself, so no
 second HACS repository is needed.
 
 The card provides:
@@ -152,3 +152,30 @@ v0.5.0 fixes that by calling `eventManager.attach` before polling
 `eventManager.getEventIndexes`, and re-attaches automatically after the camera
 session is renewed. Diagnostics now include the raw event responses if a
 firmware uses different event codes.
+
+
+## Stream compatibility in v0.6.0
+
+RP7 V2.0 can encode both streams as H.265. Home Assistant can still extract
+fresh preview frames from H.265, while browser live playback may fail. v0.6.0
+therefore changes the camera behavior:
+
+- H.264 streams keep native Home Assistant streaming.
+- H.265 streams automatically fall back to Home Assistant's MJPEG/still-stream
+  path instead of advertising a live mode that the browser cannot play.
+- The low-resolution Tenda sub-stream is named **HA compatible stream** and is
+  preferred by the bundled Tenda Camera card.
+- Main and HA-stream codec selectors expose the camera's real `Encode`
+  configuration. Changing a selector mirrors the camera web UI and preserves
+  the rest of the encoder table.
+
+For smooth native playback, set **HA stream codec** to **H.264**. The main
+stream may remain H.265 if it is wanted for recording/high-quality use.
+
+## Event diagnostics in v0.6.0
+
+The local person/motion event transport is still under reverse engineering.
+The integration now exposes a diagnostic entity named **RPC2 event status**
+with the attach SID, currently polled codes, values and short raw responses.
+This is intentionally diagnostic: it prevents future fixes from guessing
+whether the RP7 uses different event codes or a different local event transport.
