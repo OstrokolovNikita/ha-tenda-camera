@@ -7,7 +7,6 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 
-from . import TendaConfigEntry
 from .const import CONFIG_BLIND, CONFIG_MOTION, DOMAIN
 
 SERVICE_PTZ = "ptz"
@@ -31,7 +30,7 @@ DIRECTION_MAP: dict[str, tuple[str, str]] = {
 def _entry_from_entity_id(
     hass: HomeAssistant,
     entity_id: str,
-) -> TendaConfigEntry:
+) -> Any:
     registry = er.async_get(hass)
     entity_entry = registry.async_get(entity_id)
 
@@ -42,7 +41,7 @@ def _entry_from_entity_id(
     if entry is None or entry.domain != DOMAIN:
         raise HomeAssistantError(f"Entity does not belong to {DOMAIN}: {entity_id}")
 
-    return entry  # type: ignore[return-value]
+    return entry
 
 
 def _find_matching_onvif_camera(
