@@ -15,6 +15,10 @@ class TendaCameraCard extends HTMLElement {
     this._fullscreenCameraGeneration = 0;
     this._fullscreenAspectRatio = null;
     this._fullscreenFillTimers = [];
+    this._fullscreenZoom = 1;
+    this._zoomPointers = new Map();
+    this._pinchStartDistance = null;
+    this._pinchStartZoom = 1;
     this._render();
   }
 
@@ -241,7 +245,7 @@ class TendaCameraCard extends HTMLElement {
       stream.style.inset = "0";
       stream.style.width = "100%";
       stream.style.height = "100%";
-      stream.fitMode = "cover";
+      stream.fitMode = "contain";
       stream.aspectRatio = undefined;
       await stream.updateComplete;
 
@@ -256,7 +260,7 @@ class TendaCameraCard extends HTMLElement {
         child.style.margin = "0";
 
         if ("fitMode" in child) {
-          child.fitMode = "cover";
+          child.fitMode = "contain";
         }
         if ("aspectRatio" in child) {
           child.aspectRatio = undefined;
@@ -274,7 +278,7 @@ class TendaCameraCard extends HTMLElement {
           video.style.height = "100%";
           video.style.maxWidth = "none";
           video.style.maxHeight = "none";
-          video.style.objectFit = "cover";
+          video.style.objectFit = "contain";
           video.style.aspectRatio = "auto";
           video.style.margin = "0";
         }
@@ -295,8 +299,78 @@ class TendaCameraCard extends HTMLElement {
     }
   }
 
+  _applyFullscreenZoom() {
+    const media = this.shadowRoot?.querySelector(".fullscreen-media");
+    if (!media) return;
+    media.style.setProperty("--zoom", String(this._fullscreenZoom));
+  }
+
+  _resetFullscreenZoom() {
+    this._fullscreenZoom = 1;
+    this._zoomPointers.clear();
+    this._pinchStartDistance = null;
+    this._pinchStartZoom = 1;
+    this._applyFullscreenZoom();
+  }
+
+  _pinchDistance() {
+    const points = [...this._zoomPointers.values()];
+    if (points.length < 2) return null;
+    const [a, b] = points;
+    return Math.hypot(b.x - a.x, b.y - a.y);
+  }
+
+  _onZoomPointerDown(ev) {
+    if (ev.pointerType === "mouse" && ev.button !== 0) return;
+
+    ev.preventDefault();
+    ev.currentTarget?.setPointerCapture?.(ev.pointerId);
+    this._zoomPointers.set(ev.pointerId, {
+      x: ev.clientX,
+      y: ev.clientY,
+    });
+
+    if (this._zoomPointers.size === 2) {
+      this._pinchStartDistance = this._pinchDistance();
+      this._pinchStartZoom = this._fullscreenZoom;
+    }
+  }
+
+  _onZoomPointerMove(ev) {
+    if (!this._zoomPointers.has(ev.pointerId)) return;
+
+    ev.preventDefault();
+    this._zoomPointers.set(ev.pointerId, {
+      x: ev.clientX,
+      y: ev.clientY,
+    });
+
+    if (this._zoomPointers.size < 2 || !this._pinchStartDistance) return;
+
+    const distance = this._pinchDistance();
+    if (!distance) return;
+
+    const nextZoom =
+      this._pinchStartZoom * (distance / this._pinchStartDistance);
+    this._fullscreenZoom = Math.max(1, Math.min(5, nextZoom));
+    this._applyFullscreenZoom();
+  }
+
+  _onZoomPointerUp(ev) {
+    if (!this._zoomPointers.has(ev.pointerId)) return;
+
+    ev.preventDefault();
+    this._zoomPointers.delete(ev.pointerId);
+
+    if (this._zoomPointers.size < 2) {
+      this._pinchStartDistance = null;
+      this._pinchStartZoom = this._fullscreenZoom;
+    }
+  }
+
   _resetFullscreenCameraCard() {
     this._clearFullscreenFillTimers();
+    this._resetFullscreenZoom();
     this._fullscreenCameraGeneration += 1;
     this._fullscreenCameraCard = null;
     this._fullscreenCameraEntity = null;
@@ -310,7 +384,7 @@ class TendaCameraCard extends HTMLElement {
     const host = this.shadowRoot?.querySelector(".fullscreen-camera-host");
     if (!host || !state || !this._hass) return;
 
-    const aspectRatio = this._getFullscreenAspectRatio();
+    const aspectRatio = "16:9";
 
     if (
       this._fullscreenCameraCard &&
@@ -338,7 +412,7 @@ class TendaCameraCard extends HTMLElement {
         camera_view: "live",
         show_name: false,
         show_state: false,
-        fit_mode: "cover",
+        fit_mode: "contain",
         aspect_ratio: aspectRatio,
         tap_action: { action: "none" },
         hold_action: { action: "none" },
@@ -374,6 +448,7 @@ class TendaCameraCard extends HTMLElement {
     if (!overlay || !state) return;
 
     overlay.classList.add("show");
+    this._resetFullscreenZoom();
     this._applyFullscreenGeometry();
 
     // Enter real browser/WebView fullscreen first. Android WebView only allows
@@ -413,6 +488,7 @@ class TendaCameraCard extends HTMLElement {
   async _closeFullscreen() {
     const overlay = this.shadowRoot?.querySelector(".fullscreen-overlay");
     overlay?.classList.remove("show");
+    this._resetFullscreenZoom();
 
     try {
       screen.orientation?.unlock?.();
@@ -510,6 +586,21 @@ class TendaCameraCard extends HTMLElement {
         }
         .fullscreen-stage.force-rotate {
           transform: translate(-50%, -50%) rotate(90deg);
+        }
+        .fullscreen-media {
+          --zoom: 1;
+          position: absolute;
+          left: 50%;
+          top: 50%;
+          height: 100%;
+          aspect-ratio: 16 / 9;
+          transform: translate(-50%, -50%) scale(var(--zoom));
+          transform-origin: center center;
+          background: #000;
+          overflow: hidden;
+          touch-action: none;
+          user-select: none;
+          will-change: transform;
         }
         .fullscreen-camera-host {
           position: absolute;
@@ -718,7 +809,9 @@ class TendaCameraCard extends HTMLElement {
 
         <div class="fullscreen-overlay">
           <div class="fullscreen-stage">
-            <div class="fullscreen-camera-host"></div>
+            <div class="fullscreen-media">
+              <div class="fullscreen-camera-host"></div>
+            </div>
 
             <div class="joystick">
               <button class="ptz up" data-dir="up" title="Вверх">
@@ -801,6 +894,31 @@ class TendaCameraCard extends HTMLElement {
 
     window.addEventListener("orientationchange", refreshFullscreenLayout);
     window.addEventListener("resize", refreshFullscreenLayout);
+
+    const fullscreenMedia =
+      this.shadowRoot.querySelector(".fullscreen-media");
+    if (fullscreenMedia) {
+      fullscreenMedia.addEventListener(
+        "pointerdown",
+        (ev) => this._onZoomPointerDown(ev),
+        { passive: false }
+      );
+      fullscreenMedia.addEventListener(
+        "pointermove",
+        (ev) => this._onZoomPointerMove(ev),
+        { passive: false }
+      );
+      for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) {
+        fullscreenMedia.addEventListener(
+          type,
+          (ev) => this._onZoomPointerUp(ev),
+          { passive: false }
+        );
+      }
+      fullscreenMedia.addEventListener("dblclick", () =>
+        this._resetFullscreenZoom()
+      );
+    }
 
     this.shadowRoot.querySelectorAll("[data-feature]").forEach((button) => {
       button.addEventListener("click", () => {
