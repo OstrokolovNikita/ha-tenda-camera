@@ -60,6 +60,7 @@ class TendaRtspCamera(TendaCameraEntity, Camera):
     """Local RTSP stream exposed as a Home Assistant camera."""
 
     entity_description: TendaCameraDescription
+    _attr_supported_features = CameraEntityFeature.STREAM
 
     def __init__(
         self,
@@ -113,13 +114,6 @@ class TendaRtspCamera(TendaCameraEntity, Camera):
 
         codec = video.get("Compression")
         return codec if isinstance(codec, str) else None
-
-    @property
-    def supported_features(self) -> CameraEntityFeature:
-        """Use native HA streaming only when the browser-friendly codec is H.264."""
-        if self._configured_codec() == "H.264":
-            return CameraEntityFeature.STREAM
-        return CameraEntityFeature(0)
 
     @property
     def use_stream_for_stills(self) -> bool:
