@@ -164,6 +164,7 @@ class TendaRpcClient:
             "Content-Type": "application/json;charset=UTF-8",
             "Origin": self.origin,
             "Referer": f"{self.origin}{referer}",
+            "Connection": "keep-alive",
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
