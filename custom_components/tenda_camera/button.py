@@ -155,8 +155,8 @@ class TendaCameraButton(TendaCameraEntity, ButtonEntity):
         data: dict[str, Any] = {
             "entity_id": self._onvif_camera,
             "move_mode": "ContinuousMove",
-            "continuous_duration": 0.35,
-            "speed": 0.6,
+            "continuous_duration": 0.16,
+            "speed": 0.28,
         }
         data[self.entity_description.ptz_axis] = (
             self.entity_description.ptz_direction
