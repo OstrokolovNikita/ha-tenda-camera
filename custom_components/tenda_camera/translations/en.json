@@ -82,7 +82,7 @@
         "name": "Main stream"
       },
       "sub_stream": {
-        "name": "Sub stream"
+        "name": "HA compatible stream"
       }
     },
     "button": {
@@ -103,6 +103,14 @@
       },
       "ptz_right": {
         "name": "Move right"
+      }
+    },
+    "select": {
+      "main_stream_codec": {
+        "name": "Main stream codec"
+      },
+      "sub_stream_codec": {
+        "name": "HA stream codec"
       }
     }
   }
