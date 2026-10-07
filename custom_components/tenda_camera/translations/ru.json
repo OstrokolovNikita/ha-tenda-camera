@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Подключение камеры Tenda",
-        "description": "Локальное подключение напрямую к RPC2 API камеры.",
+        "description": "Локальное подключение напрямую к RPC2 API камеры.\n\nДиагностика последней попытки: **{diagnostic}**",
         "data": {
           "host": "IP-адрес / имя хоста",
           "port": "HTTPS-порт",
@@ -16,8 +16,8 @@
       }
     },
     "error": {
-      "cannot_connect": "Не удалось подключиться к камере.",
-      "rpc_error": "Камера ответила, но RPC2 API не удалось проверить."
+      "cannot_connect": "Не удалось установить транспортное соединение с камерой. Точная причина показана выше.",
+      "rpc_error": "Камера ответила, но RPC2 вернул ошибку. Точная причина показана выше."
     },
     "abort": {
       "already_configured": "Эта камера уже добавлена."
@@ -25,29 +25,15 @@
   },
   "entity": {
     "binary_sensor": {
-      "motion_detection_enabled": {
-        "name": "Детекция движения включена"
-      },
-      "human_detection_filter_enabled": {
-        "name": "Фильтр обнаружения человека включен"
-      },
-      "human_tracking_enabled": {
-        "name": "Слежение за человеком включено"
-      },
-      "blind_detection_enabled": {
-        "name": "Детекция закрытия камеры включена"
-      },
-      "onvif_enabled": {
-        "name": "ONVIF включен"
-      },
-      "rtsp_enabled": {
-        "name": "RTSP включен"
-      }
+      "motion_detection_enabled": {"name": "Детекция движения включена"},
+      "human_detection_filter_enabled": {"name": "Фильтр обнаружения человека включен"},
+      "human_tracking_enabled": {"name": "Слежение за человеком включено"},
+      "blind_detection_enabled": {"name": "Детекция закрытия камеры включена"},
+      "onvif_enabled": {"name": "ONVIF включен"},
+      "rtsp_enabled": {"name": "RTSP включен"}
     },
     "sensor": {
-      "record_mode": {
-        "name": "Режим записи"
-      }
+      "record_mode": {"name": "Режим записи"}
     }
   }
 }
