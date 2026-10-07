@@ -150,16 +150,23 @@ async def async_set_feature_service(
 
 def async_register_services(hass: HomeAssistant) -> None:
     """Register Tenda Camera services once."""
+
+    async def _handle_ptz(call: ServiceCall) -> None:
+        await async_ptz_service(hass, call)
+
+    async def _handle_set_feature(call: ServiceCall) -> None:
+        await async_set_feature_service(hass, call)
+
     if not hass.services.has_service(DOMAIN, SERVICE_PTZ):
         hass.services.async_register(
             DOMAIN,
             SERVICE_PTZ,
-            lambda call: async_ptz_service(hass, call),
+            _handle_ptz,
         )
 
     if not hass.services.has_service(DOMAIN, SERVICE_SET_FEATURE):
         hass.services.async_register(
             DOMAIN,
             SERVICE_SET_FEATURE,
-            lambda call: async_set_feature_service(hass, call),
+            _handle_set_feature,
         )
