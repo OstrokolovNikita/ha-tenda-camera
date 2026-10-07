@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
 
 from homeassistant.components.binary_sensor import (
+    BinarySensorDeviceClass,
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import TendaConfigEntry
@@ -16,61 +14,33 @@ from .entity import TendaCameraEntity
 
 
 @dataclass(frozen=True, kw_only=True)
-class TendaBinarySensorDescription(BinarySensorEntityDescription):
-    """Describe a Tenda configuration state binary sensor."""
+class TendaEventDescription(BinarySensorEntityDescription):
+    """Describe one live camera event."""
 
-    value_fn: Callable[[dict[str, Any]], bool | None]
-
-
-def _nested_bool(
-    section: str,
-    key: str,
-) -> Callable[[dict[str, Any]], bool | None]:
-    def _value(data: dict[str, Any]) -> bool | None:
-        table = data.get(section)
-        if not isinstance(table, dict) or key not in table:
-            return None
-        return bool(table[key])
-
-    return _value
+    event_code: str
 
 
-SENSORS: tuple[TendaBinarySensorDescription, ...] = (
-    TendaBinarySensorDescription(
-        key="motion_detection_enabled",
-        translation_key="motion_detection_enabled",
-        entity_category=EntityCategory.CONFIG,
-        value_fn=_nested_bool("motion", "Enable"),
+EVENT_SENSORS: tuple[TendaEventDescription, ...] = (
+    TendaEventDescription(
+        key="motion_detected",
+        translation_key="motion_detected",
+        device_class=BinarySensorDeviceClass.MOTION,
+        icon="mdi:motion-sensor",
+        event_code="VideoMotion",
     ),
-    TendaBinarySensorDescription(
-        key="human_detection_filter_enabled",
-        translation_key="human_detection_filter_enabled",
-        entity_category=EntityCategory.CONFIG,
-        value_fn=_nested_bool("motion", "HumanDetectFliter"),
+    TendaEventDescription(
+        key="person_detected",
+        translation_key="person_detected",
+        device_class=BinarySensorDeviceClass.OCCUPANCY,
+        icon="mdi:account-alert",
+        event_code="SmartMotionHuman",
     ),
-    TendaBinarySensorDescription(
-        key="human_tracking_enabled",
-        translation_key="human_tracking_enabled",
-        entity_category=EntityCategory.CONFIG,
-        value_fn=_nested_bool("motion", "HumanTrack"),
-    ),
-    TendaBinarySensorDescription(
-        key="blind_detection_enabled",
-        translation_key="blind_detection_enabled",
-        entity_category=EntityCategory.CONFIG,
-        value_fn=_nested_bool("blind", "Enable"),
-    ),
-    TendaBinarySensorDescription(
-        key="onvif_enabled",
-        translation_key="onvif_enabled",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=_nested_bool("security", "OnvifEnable"),
-    ),
-    TendaBinarySensorDescription(
-        key="rtsp_enabled",
-        translation_key="rtsp_enabled",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=_nested_bool("security", "rtsp"),
+    TendaEventDescription(
+        key="tamper_detected",
+        translation_key="tamper_detected",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        icon="mdi:camera-off",
+        event_code="VideoBlind",
     ),
 )
 
@@ -80,30 +50,34 @@ async def async_setup_entry(
     entry: TendaConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up Tenda binary sensors."""
-    coordinator = entry.runtime_data.coordinator
+    """Set up live Tenda event sensors."""
+    coordinator = entry.runtime_data.event_coordinator
+
     async_add_entities(
-        TendaCameraBinarySensor(entry, coordinator, description)
-        for description in SENSORS
+        TendaEventBinarySensor(entry, coordinator, description)
+        for description in EVENT_SENSORS
+        if description.event_code in coordinator.supported_codes
     )
 
 
-class TendaCameraBinarySensor(TendaCameraEntity, BinarySensorEntity):
-    """Representation of a Tenda camera configuration state."""
+class TendaEventBinarySensor(TendaCameraEntity, BinarySensorEntity):
+    """Live event state reported by the camera."""
 
-    entity_description: TendaBinarySensorDescription
+    entity_description: TendaEventDescription
 
     def __init__(
         self,
         entry: TendaConfigEntry,
         coordinator,
-        description: TendaBinarySensorDescription,
+        description: TendaEventDescription,
     ) -> None:
         super().__init__(entry, coordinator)
         self.entity_description = description
-        self._attr_unique_id = f"{self._device_unique_id}_{description.key}"
+        self._attr_unique_id = (
+            f"{self._device_unique_id}_{description.key}"
+        )
 
     @property
     def is_on(self) -> bool | None:
-        """Return the current boolean state."""
-        return self.entity_description.value_fn(self.coordinator.data)
+        """Return whether the event is currently active."""
+        return self.coordinator.data.get(self.entity_description.event_code)
