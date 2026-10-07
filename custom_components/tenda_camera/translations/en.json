@@ -47,6 +47,15 @@
       },
       "rtsp_enabled": {
         "name": "RTSP enabled"
+      },
+      "motion_detected": {
+        "name": "Motion detected"
+      },
+      "person_detected": {
+        "name": "Person detected"
+      },
+      "tamper_detected": {
+        "name": "Camera tamper detected"
       }
     },
     "sensor": {
@@ -82,6 +91,18 @@
       },
       "reauthenticate": {
         "name": "Reconnect RPC2"
+      },
+      "ptz_up": {
+        "name": "Move up"
+      },
+      "ptz_down": {
+        "name": "Move down"
+      },
+      "ptz_left": {
+        "name": "Move left"
+      },
+      "ptz_right": {
+        "name": "Move right"
       }
     }
   }
