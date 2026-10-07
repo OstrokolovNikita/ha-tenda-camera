@@ -22,6 +22,7 @@ async def async_get_config_entry_diagnostics(
 ) -> dict[str, Any]:
     """Return diagnostics for a Tenda Camera config entry."""
     coordinator = entry.runtime_data.coordinator
+    event_coordinator = entry.runtime_data.event_coordinator
 
     return {
         "config_entry": async_redact_data(dict(entry.data), TO_REDACT),
@@ -30,4 +31,12 @@ async def async_get_config_entry_diagnostics(
             TO_REDACT,
         ),
         "coordinator_data": coordinator.data,
+        "event_data": event_coordinator.data,
+        "event_attach_sid": event_coordinator.attach_sid,
+        "event_supported_codes": sorted(event_coordinator.supported_codes),
+        "event_unsupported_codes": sorted(event_coordinator.unsupported_codes),
+        "event_last_raw": async_redact_data(
+            event_coordinator.last_raw,
+            TO_REDACT,
+        ),
     }
