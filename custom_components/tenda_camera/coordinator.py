@@ -62,9 +62,15 @@ class TendaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.device_info = device_info
 
     async def _async_optional_config(self, name: str) -> Any | None:
+        """Read an optional table without making the whole entry unavailable."""
         try:
             return await self.client.async_get_config(name)
-        except TendaRpcResponseError:
+        except (
+            TendaRpcAuthError,
+            TendaRpcConnectionError,
+            TendaRpcResponseError,
+        ) as err:
+            _LOGGER.debug("Optional RP7 config %s is unavailable: %s", name, err)
             return None
 
     async def async_set_boolean(
