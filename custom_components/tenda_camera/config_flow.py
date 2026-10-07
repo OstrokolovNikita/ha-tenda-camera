@@ -102,11 +102,29 @@ class TendaCameraConfigFlow(ConfigFlow, domain=DOMAIN):
 
         schema = probatio.Schema(
             {
-                probatio.Required(CONF_HOST): str,
-                probatio.Optional(CONF_PORT, default=DEFAULT_PORT): int,
+                probatio.Required(
+                    CONF_HOST,
+                    default=(
+                        str(user_input[CONF_HOST]).strip()
+                        if user_input and CONF_HOST in user_input
+                        else ""
+                    ),
+                ): str,
+                probatio.Optional(
+                    CONF_PORT,
+                    default=(
+                        int(user_input.get(CONF_PORT, DEFAULT_PORT))
+                        if user_input
+                        else DEFAULT_PORT
+                    ),
+                ): int,
                 probatio.Optional(
                     CONF_VERIFY_SSL,
-                    default=DEFAULT_VERIFY_SSL,
+                    default=(
+                        bool(user_input.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL))
+                        if user_input
+                        else DEFAULT_VERIFY_SSL
+                    ),
                 ): bool,
             }
         )
