@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.6.7
+
+- On mobile, fullscreen now requests landscape orientation after entering browser/WebView fullscreen.
+- Rebuild the fullscreen main-stream card after the orientation transition so it uses the final landscape viewport ratio.
+- Use `cover` for the fullscreen main stream and match the picture-card aspect ratio to the landscape viewport.
+- Force the fullscreen overlay and embedded camera card to occupy the entire viewport with a black background, removing the large white fields.
+- Recalculate the fullscreen layout on orientation/viewport changes and unlock orientation when fullscreen closes.
+
 ## v0.6.6
 
 - Make the dashboard stream deterministic: the normal Tenda Camera card always uses the RP7 sub-stream, while fullscreen always opens the main stream.
