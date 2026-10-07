@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.3.0
+
+- Fix unavailable RP7 motion/human state by normalizing config table shapes.
+- Replace the old read-only configuration binary sensors with real writable switches.
+- Add motion detection, human detection, human tracking and tamper-detection controls.
+- Add native Home Assistant camera entities for the RP7 main and sub RTSP streams.
+- Add refresh and RPC2 re-authentication utility buttons.
+- Remove legacy v0.2.x binary-sensor registry entries during migration.
+- Keep read-modify-write operations safe by preserving the complete camera config table.
+
 ## v0.2.1
 
 - Fix RP7 authentication sessions when the camera is addressed by IP.
