@@ -305,7 +305,8 @@ class TendaCameraCard extends HTMLElement {
         .events {
           position: absolute;
           left: 12px;
-          bottom: 12px;
+          top: 12px;
+          bottom: auto;
           z-index: 4;
           display: flex;
           gap: 6px;
