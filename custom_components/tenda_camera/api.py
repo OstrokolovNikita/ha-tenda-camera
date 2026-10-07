@@ -100,6 +100,11 @@ class TendaRpcClient:
         self._auth_generation = 0
 
     @property
+    def host(self) -> str:
+        """Return camera host."""
+        return self._host
+
+    @property
     def auth_generation(self) -> int:
         """Return a counter that changes after every successful login."""
         return self._auth_generation
