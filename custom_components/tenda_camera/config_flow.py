@@ -6,10 +6,15 @@ from typing import Any
 import probatio
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
-from homeassistant.const import CONF_HOST
+from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import TendaRpcClient, TendaRpcConnectionError, TendaRpcError
+from .api import (
+    TendaRpcAuthError,
+    TendaRpcClient,
+    TendaRpcConnectionError,
+    TendaRpcError,
+)
 from .const import (
     CONF_PORT,
     CONF_VERIFY_SSL,
@@ -32,7 +37,7 @@ class TendaCameraConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Handle the initial setup step."""
         errors: dict[str, str] = {}
-        diagnostic = "not tested yet"
+        diagnostic = "не проверено"
 
         if user_input is not None:
             host = str(user_input[CONF_HOST]).strip()
@@ -40,16 +45,23 @@ class TendaCameraConfigFlow(ConfigFlow, domain=DOMAIN):
             verify_ssl = bool(
                 user_input.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
             )
+            username = str(user_input[CONF_USERNAME])
+            password = str(user_input[CONF_PASSWORD])
 
             client = TendaRpcClient(
                 session=async_get_clientsession(self.hass),
                 host=host,
                 port=port,
                 verify_ssl=verify_ssl,
+                username=username,
+                password=password,
             )
 
             try:
                 probe = await client.async_probe()
+            except TendaRpcAuthError as err:
+                diagnostic = str(err)
+                errors["base"] = "invalid_auth"
             except TendaRpcConnectionError as err:
                 diagnostic = str(err)
                 _LOGGER.warning(
@@ -82,6 +94,8 @@ class TendaCameraConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_HOST: host,
                         CONF_PORT: port,
                         CONF_VERIFY_SSL: verify_ssl,
+                        CONF_USERNAME: username,
+                        CONF_PASSWORD: password,
                     }
                 )
 
@@ -97,6 +111,8 @@ class TendaCameraConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_HOST: host,
                         CONF_PORT: port,
                         CONF_VERIFY_SSL: verify_ssl,
+                        CONF_USERNAME: username,
+                        CONF_PASSWORD: password,
                     },
                 )
 
@@ -107,6 +123,22 @@ class TendaCameraConfigFlow(ConfigFlow, domain=DOMAIN):
                     default=(
                         str(user_input[CONF_HOST]).strip()
                         if user_input and CONF_HOST in user_input
+                        else ""
+                    ),
+                ): str,
+                probatio.Required(
+                    CONF_USERNAME,
+                    default=(
+                        str(user_input.get(CONF_USERNAME, "admin"))
+                        if user_input
+                        else "admin"
+                    ),
+                ): str,
+                probatio.Required(
+                    CONF_PASSWORD,
+                    default=(
+                        str(user_input.get(CONF_PASSWORD, ""))
+                        if user_input
                         else ""
                     ),
                 ): str,
