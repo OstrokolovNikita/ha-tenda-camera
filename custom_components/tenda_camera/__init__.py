@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from aiohttp import CookieJar
 
+from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
@@ -15,6 +18,7 @@ from .api import TendaRpcClient, TendaRpcError
 from .const import DOMAIN
 from .coordinator import TendaCoordinator
 from .event_coordinator import TendaEventCoordinator
+from .services import async_register_services
 
 PLATFORMS: list[Platform] = [
     Platform.CAMERA,
@@ -23,6 +27,31 @@ PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
 ]
+
+
+FRONTEND_URL = "/tenda-camera"
+FRONTEND_MODULE = f"{FRONTEND_URL}/tenda-camera-card.js?v=0.5.0"
+
+
+async def async_setup(
+    hass: HomeAssistant,
+    config: dict,
+) -> bool:
+    """Register the bundled Tenda Camera dashboard card and services."""
+    frontend_dir = Path(__file__).parent / "frontend"
+    await hass.http.async_register_static_paths(
+        [
+            StaticPathConfig(
+                url_path=FRONTEND_URL,
+                path=str(frontend_dir),
+                cache_headers=False,
+            )
+        ]
+    )
+    add_extra_js_url(hass, FRONTEND_MODULE)
+    async_register_services(hass)
+    return True
+
 
 LEGACY_BINARY_SENSOR_KEYS = (
     "motion_detection_enabled",
