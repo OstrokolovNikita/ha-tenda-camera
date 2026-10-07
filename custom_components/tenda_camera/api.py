@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import ssl
 from typing import Any
 
 import aiohttp
@@ -37,6 +38,32 @@ class TendaRpcResponseError(TendaRpcError):
         super().__init__(details)
 
 
+def _legacy_unverified_ssl_context() -> ssl.SSLContext:
+    """Build a permissive TLS context for older embedded camera web servers."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+
+    # Some embedded servers require older TLS/cipher compatibility. This is
+    # only used when the user has explicitly disabled certificate validation.
+    if hasattr(ssl, "TLSVersion"):
+        try:
+            context.minimum_version = ssl.TLSVersion.TLSv1
+        except (ValueError, ssl.SSLError):
+            pass
+
+    try:
+        context.set_ciphers("DEFAULT:@SECLEVEL=0")
+    except ssl.SSLError:
+        pass
+
+    legacy_option = getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0)
+    if legacy_option:
+        context.options |= legacy_option
+
+    return context
+
+
 class TendaRpcClient:
     """Small async client for the local Tenda /RPC2 endpoint."""
 
@@ -53,6 +80,7 @@ class TendaRpcClient:
         self._port = port
         self._verify_ssl = verify_ssl
         self._timeout = aiohttp.ClientTimeout(total=timeout)
+        self._ssl = None if verify_ssl else _legacy_unverified_ssl_context()
 
     @property
     def base_url(self) -> str:
@@ -66,6 +94,35 @@ class TendaRpcClient:
             return f"https://{self._host}"
         return self.base_url
 
+    @staticmethod
+    def _connection_detail(err: BaseException) -> str:
+        """Turn a transport exception into a useful user-visible diagnostic."""
+        if isinstance(err, asyncio.TimeoutError):
+            return "timeout while waiting for the camera"
+
+        if isinstance(err, aiohttp.ClientConnectorCertificateError):
+            return f"TLS certificate error: {err.certificate_error}"
+
+        if isinstance(err, aiohttp.ClientConnectorSSLError):
+            return f"TLS handshake error: {err.os_error or err}"
+
+        if isinstance(err, aiohttp.ClientConnectorError):
+            os_error = err.os_error
+            if os_error is not None:
+                return (
+                    f"TCP connection failed to {err.host}:{err.port}: "
+                    f"{os_error.__class__.__name__}: {os_error}"
+                )
+            return f"TCP connection failed to {err.host}:{err.port}: {err}"
+
+        if isinstance(err, aiohttp.ServerDisconnectedError):
+            return f"camera closed the connection: {err}"
+
+        if isinstance(err, aiohttp.ClientError):
+            return f"HTTP client error: {err.__class__.__name__}: {err}"
+
+        return f"{err.__class__.__name__}: {err}"
+
     async def async_rpc(
         self,
         method: str,
@@ -77,8 +134,7 @@ class TendaRpcClient:
             "params": params or {},
         }
 
-        # RP7 V2.0's embedded web server is picky. Match the request shape used
-        # by its own web UI instead of relying on aiohttp's default JSON headers.
+        # Match the request shape captured from the RP7 V2.0 web interface.
         headers = {
             "Accept": "application/json, text/plain, */*",
             "Content-Type": "application/json;charset=UTF-8",
@@ -93,24 +149,30 @@ class TendaRpcClient:
                 f"{self.base_url}{RPC_PATH}",
                 data=json.dumps(payload, separators=(",", ":")),
                 headers=headers,
-                ssl=None if self._verify_ssl else False,
+                ssl=self._ssl,
                 timeout=self._timeout,
             ) as response:
                 body = await response.text()
+
                 if response.status != 200:
                     raise TendaRpcConnectionError(
-                        f"HTTP {response.status}: {body[:200]}"
+                        f"HTTP {response.status} {response.reason}; "
+                        f"body={body[:300]!r}"
                     )
+
                 try:
                     data = json.loads(body)
                 except ValueError as err:
                     raise TendaRpcConnectionError(
-                        f"Invalid JSON response: {body[:200]}"
+                        "camera answered but response is not JSON; "
+                        f"content-type={response.headers.get('Content-Type')!r}; "
+                        f"body={body[:300]!r}"
                     ) from err
+
         except TendaRpcConnectionError:
             raise
-        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
-            raise TendaRpcConnectionError(str(err)) from err
+        except (aiohttp.ClientError, asyncio.TimeoutError, ssl.SSLError) as err:
+            raise TendaRpcConnectionError(self._connection_detail(err)) from err
 
         if not isinstance(data, dict):
             raise TendaRpcResponseError(method, message="invalid JSON response")
