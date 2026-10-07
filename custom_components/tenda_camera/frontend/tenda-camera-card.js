@@ -549,6 +549,19 @@ class TendaCameraCard extends HTMLElement {
     return this._hass?.states?.[this._config?.entity];
   }
 
+  _previewCameraState() {
+    if (!this._hass) return this._cameraState();
+
+    return (
+      Object.values(this._hass.states || {}).find(
+        (state) =>
+          state.entity_id.startsWith("camera.") &&
+          state.attributes?.brand === "Tenda" &&
+          state.attributes?.stream_role === "sub"
+      ) || this._cameraState() || this._mainCameraState()
+    );
+  }
+
   _ptzPulse() {
     if (
       !this._hass ||
@@ -609,16 +622,21 @@ class TendaCameraCard extends HTMLElement {
   _update() {
     if (!this.shadowRoot || !this._hass || !this._config?.entity) return;
 
-    const state = this._cameraState();
-    const unavailable = !state || ["unavailable", "unknown"].includes(state.state);
+    const controlState = this._cameraState();
+    const previewState = this._previewCameraState();
+    const unavailable =
+      !previewState ||
+      ["unavailable", "unknown"].includes(previewState.state);
 
     this.shadowRoot
       .querySelector(".unavailable")
       ?.classList.toggle("show", unavailable);
 
-    if (!state) return;
+    if (!controlState || !previewState) return;
 
-    this._ensureNativeCameraCard(state);
+    // Dashboard view is always the lighter RP7 sub-stream. The fullscreen
+    // button intentionally switches to the main stream.
+    this._ensureNativeCameraCard(previewState);
     if (this._nativeCameraCard) {
       this._nativeCameraCard.hass = this._hass;
     }
@@ -626,16 +644,31 @@ class TendaCameraCard extends HTMLElement {
       this._fullscreenCameraCard.hass = this._hass;
     }
 
-    this._setActive(".motion-toggle", state.attributes?.motion_detection);
-    this._setActive(".human-toggle", state.attributes?.human_detection);
-    this._setActive(".tracking-toggle", state.attributes?.human_tracking);
+    this._setActive(
+      ".motion-toggle",
+      controlState.attributes?.motion_detection
+    );
+    this._setActive(
+      ".human-toggle",
+      controlState.attributes?.human_detection
+    );
+    this._setActive(
+      ".tracking-toggle",
+      controlState.attributes?.human_tracking
+    );
 
     this.shadowRoot
       .querySelector(".event.motion")
-      ?.classList.toggle("active", Boolean(state.attributes?.motion_detected));
+      ?.classList.toggle(
+        "active",
+        Boolean(controlState.attributes?.motion_detected)
+      );
     this.shadowRoot
       .querySelector(".event.person")
-      ?.classList.toggle("active", Boolean(state.attributes?.person_detected));
+      ?.classList.toggle(
+        "active",
+        Boolean(controlState.attributes?.person_detected)
+      );
   }
 }
 
