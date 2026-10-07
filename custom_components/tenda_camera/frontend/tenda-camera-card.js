@@ -17,8 +17,18 @@ class TendaCameraCard extends HTMLElement {
         state.attributes?.brand === "Tenda"
     );
     const entity =
-      tendaCameras.find((state) => state.attributes?.stream_role === "sub") ||
-      tendaCameras.find((state) => state.attributes?.stream_role === "main");
+      tendaCameras.find(
+        (state) =>
+          state.attributes?.stream_role === "main" &&
+          state.attributes?.stream_codec === "H.264"
+      ) ||
+      tendaCameras.find(
+        (state) =>
+          state.attributes?.stream_role === "sub" &&
+          state.attributes?.stream_codec === "H.264"
+      ) ||
+      tendaCameras.find((state) => state.attributes?.stream_role === "main") ||
+      tendaCameras.find((state) => state.attributes?.stream_role === "sub");
     return { entity: entity?.entity_id || "" };
   }
 
@@ -353,6 +363,7 @@ class TendaCameraCard extends HTMLElement {
 
     const stream = this.shadowRoot.querySelector("ha-camera-stream.stream");
     if (stream) {
+      stream.hass = this._hass;
       stream.stateObj = state;
       stream.controls = false;
       stream.muted = true;
