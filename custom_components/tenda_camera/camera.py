@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 from urllib.parse import quote
 
 from homeassistant.components.camera import (
@@ -9,6 +10,7 @@ from homeassistant.components.camera import (
     CameraEntityFeature,
 )
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
+from homeassistant.core import callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import TendaConfigEntry
@@ -67,14 +69,72 @@ class TendaRtspCamera(TendaCameraEntity, Camera):
         Camera.__init__(self)
         super().__init__(entry, coordinator)
         self.entity_description = description
+        self._event_coordinator = entry.runtime_data.event_coordinator
         self._attr_unique_id = (
             f"{self._device_unique_id}_{description.key}"
         )
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe camera state to both settings and live-event coordinators."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self._event_coordinator.async_add_listener(
+                self._handle_event_update
+            )
+        )
+
+    @callback
+    def _handle_event_update(self) -> None:
+        """Refresh camera card attributes when a live event changes."""
+        self.async_write_ha_state()
 
     @property
     def use_stream_for_stills(self) -> bool:
         """Use the RTSP stream to generate preview stills."""
         return True
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose controls/events so the bundled camera card needs one entity."""
+        motion = self.coordinator.data.get("motion")
+        blind = self.coordinator.data.get("blind")
+        events = self._event_coordinator.data or {}
+
+        return {
+            "brand": "Tenda",
+            "stream_role": (
+                "main"
+                if self.entity_description.subtype == 0
+                else "sub"
+            ),
+            "motion_detection": (
+                bool(motion.get("Enable"))
+                if isinstance(motion, dict)
+                and motion.get("Enable") is not None
+                else None
+            ),
+            "human_detection": (
+                bool(motion.get("HumanDetectFliter"))
+                if isinstance(motion, dict)
+                and motion.get("HumanDetectFliter") is not None
+                else None
+            ),
+            "human_tracking": (
+                bool(motion.get("HumanTrack"))
+                if isinstance(motion, dict)
+                and motion.get("HumanTrack") is not None
+                else None
+            ),
+            "tamper_detection": (
+                bool(blind.get("Enable"))
+                if isinstance(blind, dict)
+                and blind.get("Enable") is not None
+                else None
+            ),
+            "motion_detected": events.get("VideoMotion"),
+            "person_detected": events.get("SmartMotionHuman"),
+            "tamper_detected": events.get("VideoBlind"),
+        }
 
     async def stream_source(self) -> str | None:
         """Return the authenticated local RTSP source."""
