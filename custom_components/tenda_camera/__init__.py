@@ -33,7 +33,7 @@ PLATFORMS: list[Platform] = [
 
 
 FRONTEND_URL = "/tenda-camera"
-FRONTEND_MODULE = f"{FRONTEND_URL}/tenda-camera-card.js?v=0.6.0"
+FRONTEND_MODULE = f"{FRONTEND_URL}/tenda-camera-card.js?v=0.6.2"
 
 
 async def async_setup(
@@ -139,6 +139,8 @@ async def async_setup_entry(
         event_coordinator=event_coordinator,
     )
 
+    await event_coordinator.async_start_listener()
+
     _remove_legacy_binary_sensors(hass, entry, device_info)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -150,4 +152,5 @@ async def async_unload_entry(
     entry: TendaConfigEntry,
 ) -> bool:
     """Unload a Tenda Camera config entry."""
+    await entry.runtime_data.event_coordinator.async_stop_listener()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
