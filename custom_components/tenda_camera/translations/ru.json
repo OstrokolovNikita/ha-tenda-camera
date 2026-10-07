@@ -30,15 +30,59 @@
   },
   "entity": {
     "binary_sensor": {
-      "motion_detection_enabled": {"name": "Детекция движения включена"},
-      "human_detection_filter_enabled": {"name": "Фильтр обнаружения человека включен"},
-      "human_tracking_enabled": {"name": "Слежение за человеком включено"},
-      "blind_detection_enabled": {"name": "Детекция закрытия камеры включена"},
-      "onvif_enabled": {"name": "ONVIF включен"},
-      "rtsp_enabled": {"name": "RTSP включен"}
+      "motion_detection_enabled": {
+        "name": "Детекция движения включена"
+      },
+      "human_detection_filter_enabled": {
+        "name": "Фильтр обнаружения человека включен"
+      },
+      "human_tracking_enabled": {
+        "name": "Слежение за человеком включено"
+      },
+      "blind_detection_enabled": {
+        "name": "Детекция закрытия камеры включена"
+      },
+      "onvif_enabled": {
+        "name": "ONVIF включен"
+      },
+      "rtsp_enabled": {
+        "name": "RTSP включен"
+      }
     },
     "sensor": {
-      "record_mode": {"name": "Режим записи"}
+      "record_mode": {
+        "name": "Режим записи"
+      }
+    },
+    "switch": {
+      "motion_detection": {
+        "name": "Детекция движения"
+      },
+      "human_detection_filter": {
+        "name": "Обнаружение человека"
+      },
+      "human_tracking": {
+        "name": "Слежение за человеком"
+      },
+      "blind_detection": {
+        "name": "Детекция закрытия камеры"
+      }
+    },
+    "camera": {
+      "main_stream": {
+        "name": "Основной поток"
+      },
+      "sub_stream": {
+        "name": "Дополнительный поток"
+      }
+    },
+    "button": {
+      "refresh": {
+        "name": "Обновить состояния"
+      },
+      "reauthenticate": {
+        "name": "Переподключить RPC2"
+      }
     }
   }
 }
