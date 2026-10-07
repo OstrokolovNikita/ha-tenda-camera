@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.6.0
+
+- Fix the camera entity fallback path so H.265 streams no longer expose a broken browser live mode.
+- Add RTSP snapshot decoding for Home Assistant MJPEG fallback.
+- Keep native Home Assistant streaming automatically when the selected camera stream uses H.264.
+- Rename the sub-stream to `HA compatible stream` and prefer it in the bundled Tenda Camera card.
+- Add writable `Main stream codec` and `HA stream codec` selectors for H.264/H.265.
+- Mirror the RP7 web UI's Encode table update, including H.264 Main / H.265 Baseline profile values.
+- Add `RPC2 event status` diagnostic entity with attach SID, event values and short raw responses.
+- Do not claim person/motion event handling is solved until RP7 V2.0 raw responses confirm the local event code/transport.
+
 ## v0.5.0
 
 - Fix live motion/person/tamper sensors by attaching the RPC2 event manager before reading event indexes.
