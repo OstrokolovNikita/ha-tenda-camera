@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import probatio
@@ -17,6 +18,8 @@ from .const import (
     DOMAIN,
 )
 
+_LOGGER = logging.getLogger(__name__)
+
 
 class TendaCameraConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Tenda Camera."""
@@ -29,6 +32,7 @@ class TendaCameraConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Handle the initial setup step."""
         errors: dict[str, str] = {}
+        diagnostic = "not tested yet"
 
         if user_input is not None:
             host = str(user_input[CONF_HOST]).strip()
@@ -46,9 +50,23 @@ class TendaCameraConfigFlow(ConfigFlow, domain=DOMAIN):
 
             try:
                 probe = await client.async_probe()
-            except TendaRpcConnectionError:
+            except TendaRpcConnectionError as err:
+                diagnostic = str(err)
+                _LOGGER.warning(
+                    "Tenda camera connection test failed for %s:%s: %s",
+                    host,
+                    port,
+                    diagnostic,
+                )
                 errors["base"] = "cannot_connect"
-            except TendaRpcError:
+            except TendaRpcError as err:
+                diagnostic = str(err)
+                _LOGGER.warning(
+                    "Tenda camera RPC2 validation failed for %s:%s: %s",
+                    host,
+                    port,
+                    diagnostic,
+                )
                 errors["base"] = "rpc_error"
             else:
                 general = probe.get("general") or {}
@@ -97,4 +115,5 @@ class TendaCameraConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=schema,
             errors=errors,
+            description_placeholders={"diagnostic": diagnostic},
         )
