@@ -9,6 +9,7 @@ from homeassistant.components.camera import (
     CameraEntityDescription,
     CameraEntityFeature,
 )
+from homeassistant.components.camera.helper import async_get_stream_image
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -22,6 +23,7 @@ class TendaCameraDescription(CameraEntityDescription):
     """Describe one RP7 RTSP stream."""
 
     subtype: int
+    native_stream: bool = True
 
 
 CAMERAS: tuple[TendaCameraDescription, ...] = (
@@ -36,6 +38,7 @@ CAMERAS: tuple[TendaCameraDescription, ...] = (
         translation_key="sub_stream",
         icon="mdi:video-outline",
         subtype=1,
+        native_stream=False,
     ),
 )
 
@@ -58,7 +61,6 @@ class TendaRtspCamera(TendaCameraEntity, Camera):
     """Local RTSP stream exposed as a Home Assistant camera."""
 
     entity_description: TendaCameraDescription
-    _attr_supported_features = CameraEntityFeature.STREAM
 
     def __init__(
         self,
@@ -70,6 +72,11 @@ class TendaRtspCamera(TendaCameraEntity, Camera):
         super().__init__(entry, coordinator)
         self.entity_description = description
         self._event_coordinator = entry.runtime_data.event_coordinator
+        self._attr_supported_features = (
+            CameraEntityFeature.STREAM
+            if description.native_stream
+            else CameraEntityFeature(0)
+        )
         self._attr_unique_id = (
             f"{self._device_unique_id}_{description.key}"
         )
@@ -135,6 +142,19 @@ class TendaRtspCamera(TendaCameraEntity, Camera):
             "person_detected": events.get("SmartMotionHuman"),
             "tamper_detected": events.get("VideoBlind"),
         }
+
+    async def async_camera_image(
+        self,
+        width: int | None = None,
+        height: int | None = None,
+    ) -> bytes | None:
+        """Decode a still from RTSP for the MJPEG-compatible HA fallback."""
+        return await async_get_stream_image(
+            self,
+            width=width,
+            height=height,
+            wait_for_next_keyframe=True,
+        )
 
     async def stream_source(self) -> str | None:
         """Return the authenticated local RTSP source."""
