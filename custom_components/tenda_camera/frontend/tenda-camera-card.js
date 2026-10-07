@@ -160,12 +160,21 @@ class TendaCameraCard extends HTMLElement {
 
   _applyFullscreenGeometry() {
     const stage = this.shadowRoot?.querySelector(".fullscreen-stage");
+    const media = this.shadowRoot?.querySelector(".fullscreen-media");
     if (!stage) return;
 
     const { width, height, rotate } = this._fullscreenLandscapeSize();
     stage.style.width = `${width}px`;
     stage.style.height = `${height}px`;
     stage.classList.toggle("force-rotate", rotate);
+
+    // Always fit the 16:9 camera image by the available screen height.
+    // On 20:9/21:9 phones this deliberately leaves black side bars rather
+    // than cropping the top/bottom of the camera frame.
+    if (media) {
+      media.style.height = `${height}px`;
+      media.style.width = `${Math.round((height * 16) / 9)}px`;
+    }
   }
 
   _clearFullscreenFillTimers() {
