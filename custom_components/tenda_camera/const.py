@@ -15,6 +15,7 @@ RPC_PATH = "/RPC2"
 
 CONFIG_GENERAL = "General"
 CONFIG_DEVICE_NAME = "DeviceName"
+CONFIG_ENCODE = "Encode"
 CONFIG_MOTION = "MotionDetect"
 CONFIG_BLIND = "BlindDetect"
 CONFIG_RECORD_MODE = "RecordMode"
