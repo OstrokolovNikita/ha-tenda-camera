@@ -46,6 +46,8 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         self.supported_codes: set[str] = set()
         self.unsupported_codes: set[str] = set()
         self._attached = False
+        self._attached_generation = -1
+        self._attach_supported = True
         self.attach_sid: Any | None = None
         self.last_raw: dict[str, Any] = {}
 
@@ -58,6 +60,7 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         params = data.get("params") or {}
         self.attach_sid = params.get("SID")
         self._attached = True
+        self._attached_generation = self.client.auth_generation
         _LOGGER.debug("RP7 event manager attached; SID=%r", self.attach_sid)
 
     async def _async_event_active(self, code: str) -> bool | None:
@@ -100,8 +103,28 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
 
     async def _async_update_data(self) -> dict[str, bool | None]:
         try:
-            if not self._attached:
-                await self.async_attach()
+            if (
+                self._attach_supported
+                and (
+                    not self._attached
+                    or self._attached_generation != self.client.auth_generation
+                )
+            ):
+                try:
+                    await self.async_attach()
+                except TendaRpcResponseError as err:
+                    # Do not take the whole camera integration down just because
+                    # this firmware refuses eventManager.attach. Keep polling so
+                    # diagnostics can still show what getEventIndexes returns.
+                    self._attach_supported = False
+                    self._attached = False
+                    self.last_raw["eventManager.attach"] = {
+                        "error": str(err),
+                        "raw": err.raw,
+                    }
+                    _LOGGER.warning(
+                        "RP7 eventManager.attach is unavailable: %s", err
+                    )
 
             return {
                 code: await self._async_event_active(code)
@@ -115,7 +138,4 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         except TendaRpcConnectionError as err:
             raise UpdateFailed(f"Unable to poll camera events: {err}") from err
         except TendaRpcResponseError as err:
-            # Some firmwares may refuse eventManager.attach. Surface the
-            # failure rather than pretending that every event is simply off.
-            self._attached = False
-            raise UpdateFailed(f"Unable to attach camera event manager: {err}") from err
+            raise UpdateFailed(f"Unable to poll camera events: {err}") from err
