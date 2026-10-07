@@ -5,7 +5,7 @@ from datetime import timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .api import (
     TendaRpcAuthError,
@@ -130,12 +130,14 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
                 code: await self._async_event_active(code)
                 for code in EVENT_CODES
             }
-        except TendaRpcAuthError:
-            # Re-authentication creates a new camera session; attach the
-            # event manager again on the next cycle.
+        except (
+            TendaRpcAuthError,
+            TendaRpcConnectionError,
+            TendaRpcResponseError,
+        ) as err:
+            # Event transport is diagnostic/optional. A firmware-specific
+            # event failure must never take the whole camera entry down.
             self._attached = False
-            raise
-        except TendaRpcConnectionError as err:
-            raise UpdateFailed(f"Unable to poll camera events: {err}") from err
-        except TendaRpcResponseError as err:
-            raise UpdateFailed(f"Unable to poll camera events: {err}") from err
+            self.last_raw["poll_error"] = {"error": str(err)}
+            _LOGGER.warning("Unable to poll RP7 camera events: %s", err)
+            return {code: None for code in EVENT_CODES}
