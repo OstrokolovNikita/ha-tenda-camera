@@ -14,12 +14,14 @@ from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from .api import TendaRpcClient, TendaRpcError
 from .const import DOMAIN
 from .coordinator import TendaCoordinator
+from .event_coordinator import TendaEventCoordinator
 
 PLATFORMS: list[Platform] = [
     Platform.CAMERA,
     Platform.SWITCH,
     Platform.BUTTON,
     Platform.SENSOR,
+    Platform.BINARY_SENSOR,
 ]
 
 LEGACY_BINARY_SENSOR_KEYS = (
@@ -38,6 +40,7 @@ class TendaRuntimeData:
 
     client: TendaRpcClient
     coordinator: TendaCoordinator
+    event_coordinator: TendaEventCoordinator
 
 
 type TendaConfigEntry = ConfigEntry[TendaRuntimeData]
@@ -95,9 +98,13 @@ async def async_setup_entry(
     coordinator = TendaCoordinator(hass, client, device_info)
     await coordinator.async_config_entry_first_refresh()
 
+    event_coordinator = TendaEventCoordinator(hass, client, device_info)
+    await event_coordinator.async_config_entry_first_refresh()
+
     entry.runtime_data = TendaRuntimeData(
         client=client,
         coordinator=coordinator,
+        event_coordinator=event_coordinator,
     )
 
     _remove_legacy_binary_sensors(hass, entry, device_info)
