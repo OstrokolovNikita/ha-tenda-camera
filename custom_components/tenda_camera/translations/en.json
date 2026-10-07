@@ -61,6 +61,9 @@
     "sensor": {
       "record_mode": {
         "name": "Record mode"
+      },
+      "event_status": {
+        "name": "RPC2 event status"
       }
     },
     "switch": {
