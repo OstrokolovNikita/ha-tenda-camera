@@ -4,9 +4,13 @@ import asyncio
 import json
 import logging
 from datetime import timedelta
+from collections.abc import Callable
 from typing import Any
 
-from homeassistant.core import HomeAssistant
+from homeassistant.const import CONF_HOST, STATE_OFF, STATE_ON
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .api import (
@@ -154,6 +158,12 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         self.last_raw: dict[str, Any] = {}
         self.stream_status = "stopped"
         self._event_task: asyncio.Task[None] | None = None
+        self._onvif_unsub: Callable[[], None] | None = None
+        self.onvif_sources: dict[str, list[str]] = {
+            "VideoMotion": [],
+            "SmartMotionHuman": [],
+            "VideoBlind": [],
+        }
         self._pulse_clear_tasks: dict[str, asyncio.Task[None]] = {}
         self._live_states: dict[str, bool] = {
             "VideoMotion": False,
@@ -175,7 +185,9 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         _LOGGER.debug("RP7 event manager attached; SID=%r", self.attach_sid)
 
     async def async_start_listener(self) -> None:
-        """Start the long-lived local event stream task."""
+        """Start local event transports."""
+        self._async_start_onvif_mirror()
+
         if self._event_task is not None and not self._event_task.done():
             return
         self._event_task = self.hass.async_create_task(
@@ -192,6 +204,10 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
             except asyncio.CancelledError:
                 pass
             self._event_task = None
+
+        if self._onvif_unsub is not None:
+            self._onvif_unsub()
+            self._onvif_unsub = None
 
         for task in self._pulse_clear_tasks.values():
             task.cancel()
@@ -365,12 +381,21 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
                 for code in EVENT_CODES
             }
 
-            # SubscribeNotify is authoritative once connected; otherwise keep
-            # the old RPC polling values as a harmless diagnostic fallback.
-            if self.stream_status == "connected":
-                return dict(self._live_states)
+            self.last_raw["event_index_values"] = polled
 
-            return polled
+            # Never return None for normal event entities just because one
+            # experimental transport is unavailable. Keep the last known live
+            # value, and only use event indexes as a fallback when there is no
+            # live SubscribeNotify stream and no matching ONVIF source.
+            if self.stream_status != "connected":
+                for code, value in polled.items():
+                    if value is None:
+                        continue
+                    if self.onvif_sources.get(code):
+                        continue
+                    self._live_states[code] = value
+
+            return dict(self._live_states)
         except (
             TendaRpcAuthError,
             TendaRpcConnectionError,
