@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.6.8
+
+- Stop relying on Android auto-rotate for camera fullscreen.
+- Render fullscreen inside a dedicated landscape stage and rotate that stage in CSS whenever the phone viewport remains portrait.
+- Recalculate the landscape stage from the actual current viewport bounds on every fullscreen/orientation/resize change.
+- Force the embedded Home Assistant camera card, hui-image container, camera stream and underlying video player to fill the fullscreen stage edge-to-edge.
+- Use cover mode for the main stream so there are no large unused white/black fields; the image may be cropped slightly on screens wider than 16:9.
+- Keep PTZ controls inside the same rotated landscape stage so their position follows the video.
+
 ## v0.6.7
 
 - On mobile, fullscreen now requests landscape orientation after entering browser/WebView fullscreen.
