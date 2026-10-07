@@ -26,15 +26,19 @@ class TendaRpcResponseError(TendaRpcError):
         method: str,
         code: int | None = None,
         message: str | None = None,
+        raw: dict[str, Any] | None = None,
     ) -> None:
         self.method = method
         self.code = code
         self.message = message
+        self.raw = raw
         details = f"RPC method {method!r} failed"
         if code is not None:
             details += f" (code {code})"
         if message:
             details += f": {message}"
+        if raw is not None:
+            details += f"; raw={json.dumps(raw, ensure_ascii=False, separators=(',', ':'))[:500]}"
         super().__init__(details)
 
 
@@ -44,8 +48,6 @@ def _legacy_unverified_ssl_context() -> ssl.SSLContext:
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
 
-    # Some embedded servers require older TLS/cipher compatibility. This is
-    # only used when the user has explicitly disabled certificate validation.
     if hasattr(ssl, "TLSVersion"):
         try:
             context.minimum_version = ssl.TLSVersion.TLSv1
@@ -134,14 +136,17 @@ class TendaRpcClient:
             "params": params or {},
         }
 
-        # Match the request shape captured from the RP7 V2.0 web interface.
         headers = {
             "Accept": "application/json, text/plain, */*",
             "Content-Type": "application/json;charset=UTF-8",
             "Origin": self.origin,
             "Referer": f"{self.origin}/",
             "Connection": "close",
-            "User-Agent": "Mozilla/5.0 HomeAssistant TendaCamera/0.1",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/154.0.0.0 Safari/537.36"
+            ),
         }
 
         try:
@@ -175,29 +180,44 @@ class TendaRpcClient:
             raise TendaRpcConnectionError(self._connection_detail(err)) from err
 
         if not isinstance(data, dict):
-            raise TendaRpcResponseError(method, message="invalid JSON response")
+            raise TendaRpcResponseError(
+                method,
+                message="invalid JSON response",
+                raw={"response": data},
+            )
 
         if data.get("result") is False:
             error = data.get("error") or {}
             raise TendaRpcResponseError(
                 method,
                 code=error.get("code"),
-                message=error.get("message") or str(data.get("params", "")),
+                message=error.get("message"),
+                raw=data,
             )
 
         return data
 
     async def async_get_config(self, name: str) -> Any:
         """Read one config table."""
-        data = await self.async_rpc(
-            "configManager.getConfig",
-            {"name": name},
-        )
+        try:
+            data = await self.async_rpc(
+                "configManager.getConfig",
+                {"name": name},
+            )
+        except TendaRpcResponseError as err:
+            raise TendaRpcResponseError(
+                f"configManager.getConfig[{name}]",
+                code=err.code,
+                message=err.message,
+                raw=err.raw,
+            ) from err
+
         params = data.get("params") or {}
         if "table" not in params:
             raise TendaRpcResponseError(
-                "configManager.getConfig",
-                message=f"missing table for {name}",
+                f"configManager.getConfig[{name}]",
+                message="response has no params.table",
+                raw=data,
             )
         return params["table"]
 
@@ -212,6 +232,7 @@ class TendaRpcClient:
 
     async def async_probe(self) -> dict[str, Any]:
         """Read the minimum data needed to identify a camera."""
+        # Keep these sequential so a failed diagnostic shows the exact step.
         general = await self.async_get_config("General")
         device_name = await self.async_get_config("DeviceName")
         product = await self.async_get_product_definition()
