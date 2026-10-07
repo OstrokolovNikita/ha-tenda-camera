@@ -1,9 +1,15 @@
 {
   "domain": "tenda_camera",
   "name": "Tenda Camera",
-  "codeowners": ["@OstrokolovNikita"],
+  "codeowners": [
+    "@OstrokolovNikita"
+  ],
   "config_flow": true,
-  "dependencies": ["frontend", "http"],
+  "dependencies": [
+    "frontend",
+    "http",
+    "lovelace"
+  ],
   "documentation": "https://github.com/OstrokolovNikita/ha-tenda-camera",
   "integration_type": "device",
   "iot_class": "local_polling",
