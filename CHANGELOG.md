@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.6.2
+
+- Replace the custom card's MJPEG proxy image with Home Assistant's native `ha-camera-stream` player, allowing WebRTC/go2rtc or HLS instead of slideshow-style proxy frames.
+- Fix the card PTZ error caused by invalid ONVIF `continuous_duration=10`.
+- Change touch PTZ to repeated short pulses while the arrow is held and Stop on release.
+- Clamp every PTZ duration to Home Assistant's ONVIF maximum of one second.
+- Prefer an H.264 main stream when creating a new Tenda Camera card.
+- Keep camera STREAM capability stable when codecs are changed at runtime.
+- Add an experimental local `SubscribeNotify.cgi` event listener after `eventManager.attach`.
+- Parse `client.notifyEventStream` locally for motion, person and tamper events, including Human object classification inside generic motion events.
+- Keep old event-index polling only as a fallback and expose notification stream diagnostics.
+
 ## v0.6.1
 
 - Fix startup failure introduced in v0.6.0 on Home Assistant installations where the internal camera helper import is unavailable.
