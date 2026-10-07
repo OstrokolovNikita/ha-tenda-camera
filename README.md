@@ -2,13 +2,13 @@
 
 Local Home Assistant integration for Tenda IP cameras.
 
-> **Status: alpha. RP7 V2.0 local authentication, RTSP streams, writable controls, PTZ buttons and live event probing are working.**
+> **Status: alpha. RP7 V2.0 local authentication, RTSP streams, writable controls, live event polling and a bundled touch-PTZ camera card are working.**
 > The first tested device is **Tenda RP7 V2.0** with firmware **V21.7.18.99**.
 
 The integration talks directly to the camera on the LAN using the camera's
 local JSON RPC endpoint (`/RPC2`). It does not require TDSEE cloud access.
 
-## Current v0.4.0 scope
+## Current v0.5.0 scope
 
 The current milestone provides local RP7 V2.0 authentication, device discovery,
 two RTSP camera entities and writable configuration switches. All traffic stays
@@ -107,3 +107,48 @@ The configuration switches answer a different question from event sensors:
 v0.4.0 probes `eventManager.getEventIndexes` locally every two seconds for
 `VideoMotion`, `SmartMotionHuman` and `VideoBlind`. Unsupported event codes
 are not exposed as entities.
+
+
+## Tenda Camera dashboard card
+
+v0.5.0 bundles a Home Assistant custom card with the integration itself, so no
+second HACS repository is needed.
+
+The card provides:
+
+- live camera image from the Home Assistant camera proxy;
+- a touch PTZ cross directly over the picture;
+- press-and-hold movement with Stop on release instead of one large PTZ jump;
+- quick Motion / Human detection / Human tracking toggles;
+- live Motion and Person indicators over the image.
+
+After updating and restarting Home Assistant, open a dashboard, choose **Add card**
+and select **Tenda Camera**. The card tries to select the main Tenda stream
+automatically.
+
+Manual fallback:
+
+```yaml
+type: custom:tenda-camera-card
+entity: camera.your_tenda_main_stream
+```
+
+PTZ currently delegates to the already configured Home Assistant ONVIF camera
+with the same IP address. Direct Tenda RPC2 PTZ remains a future goal.
+
+## Human detection semantics
+
+There are intentionally two different kinds of entities:
+
+- **Human detection** switch: enables/disables the camera's built-in person
+  classification.
+- **Human tracking** switch: enables/disables physical pan/tilt tracking after
+  the camera has classified a person.
+- **Person detected** binary sensor: a live event state used by Home Assistant
+  automations.
+
+v0.4.0 polled event indexes without first attaching the RPC2 event manager.
+v0.5.0 fixes that by calling `eventManager.attach` before polling
+`eventManager.getEventIndexes`, and re-attaches automatically after the camera
+session is renewed. Diagnostics now include the raw event responses if a
+firmware uses different event codes.
