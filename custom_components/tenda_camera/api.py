@@ -285,6 +285,44 @@ class TendaRpcClient:
             )
         return params["table"]
 
+    async def async_set_config(self, name: str, table: Any) -> None:
+        """Write a complete config table back to the camera."""
+        await self.async_rpc(
+            "configManager.setConfig",
+            {
+                "name": name,
+                "table": table,
+            },
+        )
+
+    async def async_set_config_value(
+        self,
+        name: str,
+        key: str,
+        value: Any,
+    ) -> None:
+        """Read-modify-write one value while preserving the rest of the table."""
+        table = await self.async_get_config(name)
+
+        if isinstance(table, dict):
+            updated = dict(table)
+            updated[key] = value
+        elif (
+            isinstance(table, list)
+            and table
+            and isinstance(table[0], dict)
+        ):
+            updated = [dict(item) if isinstance(item, dict) else item for item in table]
+            updated[0][key] = value
+        else:
+            raise TendaRpcResponseError(
+                f"configManager.setConfig[{name}]",
+                message=f"unsupported table shape for key {key!r}",
+                raw={"table": table},
+            )
+
+        await self.async_set_config(name, updated)
+
     async def async_get_product_definition(self) -> dict[str, Any]:
         """Read basic RPC capabilities."""
         data = await self.async_rpc(
