@@ -7,6 +7,9 @@ class TendaCameraCard extends HTMLElement {
     this._ptzTimer = null;
     this._ptzDirection = null;
     this._ptzActive = false;
+    this._nativeCameraCard = null;
+    this._nativeCameraEntity = null;
+    this._nativeCameraGeneration = 0;
     this._render();
   }
 
@@ -51,6 +54,58 @@ class TendaCameraCard extends HTMLElement {
 
   disconnectedCallback() {
     this._stopPtzTimerOnly();
+    this._nativeCameraGeneration += 1;
+  }
+
+  async _ensureNativeCameraCard(state) {
+    const host = this.shadowRoot?.querySelector(".native-camera-host");
+    if (!host || !state || !this._hass) return;
+
+    if (
+      this._nativeCameraCard &&
+      this._nativeCameraEntity === state.entity_id
+    ) {
+      this._nativeCameraCard.hass = this._hass;
+      return;
+    }
+
+    const generation = ++this._nativeCameraGeneration;
+
+    try {
+      if (typeof window.loadCardHelpers !== "function") {
+        throw new Error("Home Assistant card helpers are unavailable");
+      }
+
+      const helpers = await window.loadCardHelpers();
+      if (generation !== this._nativeCameraGeneration) return;
+
+      const card = helpers.createCardElement({
+        type: "picture-entity",
+        entity: state.entity_id,
+        camera_image: state.entity_id,
+        camera_view: "live",
+        show_name: false,
+        show_state: false,
+        fit_mode: "cover",
+        tap_action: { action: "none" },
+        hold_action: { action: "none" },
+      });
+
+      card.hass = this._hass;
+      card.style.width = "100%";
+      card.style.height = "100%";
+      card.style.display = "block";
+
+      host.replaceChildren(card);
+      this._nativeCameraCard = card;
+      this._nativeCameraEntity = state.entity_id;
+    } catch (err) {
+      console.error("Tenda Camera: failed to mount native live card", err);
+      host.textContent = "Не удалось открыть live-поток";
+      host.style.color = "white";
+      host.style.display = "grid";
+      host.style.placeItems = "center";
+    }
   }
 
   _render() {
@@ -71,11 +126,18 @@ class TendaCameraCard extends HTMLElement {
           background: #111;
           overflow: hidden;
         }
-        ha-camera-stream.stream {
+        .native-camera-host {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          overflow: hidden;
+          background: #111;
+        }
+        .native-camera-host > * {
           width: 100%;
           height: 100%;
           display: block;
-          --ha-camera-stream-fit-mode: cover;
         }
         .title {
           position: absolute;
@@ -198,7 +260,7 @@ class TendaCameraCard extends HTMLElement {
 
       <ha-card>
         <div class="stage">
-          <ha-camera-stream class="stream"></ha-camera-stream>
+          <div class="native-camera-host"></div>
           <div class="title">Tenda Camera</div>
 
           <div class="events">
@@ -361,14 +423,9 @@ class TendaCameraCard extends HTMLElement {
 
     if (!state) return;
 
-    const stream = this.shadowRoot.querySelector("ha-camera-stream.stream");
-    if (stream) {
-      stream.hass = this._hass;
-      stream.stateObj = state;
-      stream.controls = false;
-      stream.muted = true;
-      stream.fitMode = "cover";
-      stream.aspectRatio = 16 / 9;
+    this._ensureNativeCameraCard(state);
+    if (this._nativeCameraCard) {
+      this._nativeCameraCard.hass = this._hass;
     }
 
     const title =
