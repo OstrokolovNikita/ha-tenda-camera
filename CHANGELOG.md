@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.6.9
+
+- Fit fullscreen video by screen height instead of screen width.
+- Preserve the complete 16:9 camera frame on 20:9/21:9 phones, leaving black side bars when necessary instead of cropping vertically.
+- Add two-finger pinch zoom in fullscreen mode, from 1x to 5x.
+- Zoom affects only the video layer; PTZ and close controls stay fixed and usable.
+- Reset zoom whenever fullscreen is opened, closed, or rebuilt after an orientation/viewport change.
+
 ## v0.6.8
 
 - Stop relying on Android auto-rotate for camera fullscreen.
