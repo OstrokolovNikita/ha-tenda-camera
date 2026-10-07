@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.6.3
+
+- Rebuild the custom Tenda Camera card around Home Assistant's own native `picture-entity` live card instead of embedding `ha-camera-stream` directly inside the integration shadow DOM.
+- This makes the card use the exact same live-video path as a normal Home Assistant camera card, while keeping the Tenda PTZ overlay on top.
+- Mirror matching ONVIF event entities from the already configured ONVIF camera on the same IP (for example `Cell Motion Detection`) into the Tenda event sensors.
+- Keep local SubscribeNotify event listening in parallel for Tenda/Dahua-style motion, human and tamper notifications.
+- Keep event sensors stable at their last known boolean value instead of flipping to Unknown when an experimental event transport returns no value.
+- Add ONVIF mirror sources to diagnostics.
+
 ## v0.6.2
 
 - Replace the custom card's MJPEG proxy image with Home Assistant's native `ha-camera-stream` player, allowing WebRTC/go2rtc or HLS instead of slideshow-style proxy frames.
