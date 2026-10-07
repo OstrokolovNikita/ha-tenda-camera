@@ -64,7 +64,7 @@ class TendaCameraCard extends HTMLElement {
   disconnectedCallback() {
     this._stopPtzTimerOnly();
     this._clearFullscreenFillTimers();
-    this._resetZoom();
+    this._resetFullscreenZoom();
     this._nativeCameraGeneration += 1;
     this._fullscreenCameraGeneration += 1;
   }
@@ -169,9 +169,9 @@ class TendaCameraCard extends HTMLElement {
     stage.style.height = `${height}px`;
     stage.classList.toggle("force-rotate", rotate);
 
-    // Always fit the 16:9 camera image by the available screen height.
-    // On 20:9/21:9 phones this deliberately leaves black side bars rather
-    // than cropping the top/bottom of the camera frame.
+    // Always fit the 16:9 camera image by the available LANDSCAPE screen
+    // height. On 20:9/21:9 phones this leaves black side bars by design:
+    // the whole frame stays visible vertically with no top/bottom crop.
     if (media) {
       media.style.height = `${height}px`;
       media.style.width = `${Math.round((height * 16) / 9)}px`;
@@ -378,218 +378,6 @@ class TendaCameraCard extends HTMLElement {
     }
   }
 
-  _applyZoom() {
-    const host = this.shadowRoot?.querySelector(".fullscreen-camera-host");
-    if (!host) return;
-
-    host.style.transform = `translate3d(${this._panX}px, ${this._panY}px, 0) scale(${this._zoom})`;
-  }
-
-  _clampPan() {
-    const stage = this.shadowRoot?.querySelector(".fullscreen-stage");
-    if (!stage) return;
-
-    if (this._zoom <= 1) {
-      this._panX = 0;
-      this._panY = 0;
-      return;
-    }
-
-    const maxX = (stage.clientWidth * (this._zoom - 1)) / 2;
-    const maxY = (stage.clientHeight * (this._zoom - 1)) / 2;
-    this._panX = Math.max(-maxX, Math.min(maxX, this._panX));
-    this._panY = Math.max(-maxY, Math.min(maxY, this._panY));
-  }
-
-  _setZoom(value, center = null) {
-    const oldZoom = this._zoom;
-    const nextZoom = Math.max(1, Math.min(5, value));
-
-    if (center && oldZoom > 0 && nextZoom !== oldZoom) {
-      const stage = this.shadowRoot?.querySelector(".fullscreen-stage");
-      if (stage) {
-        const rect = stage.getBoundingClientRect();
-        const cx = center.x - (rect.left + rect.width / 2);
-        const cy = center.y - (rect.top + rect.height / 2);
-        const ratio = nextZoom / oldZoom;
-        this._panX = cx - (cx - this._panX) * ratio;
-        this._panY = cy - (cy - this._panY) * ratio;
-      }
-    }
-
-    this._zoom = nextZoom;
-    this._clampPan();
-    this._applyZoom();
-  }
-
-  _resetZoom() {
-    this._zoom = 1;
-    this._panX = 0;
-    this._panY = 0;
-    this._gesturePointers?.clear?.();
-    this._gestureStartDistance = 0;
-    this._gestureStartZoom = 1;
-    this._gestureStartCenter = null;
-    this._gestureStartPan = null;
-    this._applyZoom();
-  }
-
-  _gestureCenter(points) {
-    const values = [...points.values()];
-    if (values.length < 2) return null;
-    return {
-      x: (values[0].x + values[1].x) / 2,
-      y: (values[0].y + values[1].y) / 2,
-    };
-  }
-
-  _gestureDistance(points) {
-    const values = [...points.values()];
-    if (values.length < 2) return 0;
-    return Math.hypot(
-      values[0].x - values[1].x,
-      values[0].y - values[1].y
-    );
-  }
-
-  _bindFullscreenGestures() {
-    const stage = this.shadowRoot?.querySelector(".fullscreen-stage");
-    if (!stage || stage.dataset.zoomBound === "1") return;
-    stage.dataset.zoomBound = "1";
-
-    const isControl = (target) =>
-      target instanceof Element &&
-      Boolean(target.closest(".joystick, .ptz, .fullscreen-close"));
-
-    stage.addEventListener("pointerdown", (event) => {
-      if (isControl(event.target)) return;
-
-      stage.setPointerCapture?.(event.pointerId);
-      this._gesturePointers.set(event.pointerId, {
-        x: event.clientX,
-        y: event.clientY,
-      });
-
-      if (this._gesturePointers.size === 2) {
-        event.preventDefault();
-        this._gestureStartDistance =
-          this._gestureDistance(this._gesturePointers);
-        this._gestureStartZoom = this._zoom;
-        this._gestureStartCenter =
-          this._gestureCenter(this._gesturePointers);
-        this._gestureStartPan = {
-          x: this._panX,
-          y: this._panY,
-        };
-      } else if (this._gesturePointers.size === 1 && this._zoom > 1) {
-        this._gestureStartCenter = {
-          x: event.clientX,
-          y: event.clientY,
-        };
-        this._gestureStartPan = {
-          x: this._panX,
-          y: this._panY,
-        };
-      }
-    });
-
-    stage.addEventListener("pointermove", (event) => {
-      if (!this._gesturePointers.has(event.pointerId)) return;
-
-      this._gesturePointers.set(event.pointerId, {
-        x: event.clientX,
-        y: event.clientY,
-      });
-
-      if (
-        this._gesturePointers.size >= 2 &&
-        this._gestureStartDistance > 0
-      ) {
-        event.preventDefault();
-
-        const distance = this._gestureDistance(this._gesturePointers);
-        const center = this._gestureCenter(this._gesturePointers);
-        const nextZoom =
-          this._gestureStartZoom *
-          (distance / this._gestureStartDistance);
-
-        this._setZoom(nextZoom, center);
-        return;
-      }
-
-      if (
-        this._gesturePointers.size === 1 &&
-        this._zoom > 1 &&
-        this._gestureStartCenter &&
-        this._gestureStartPan
-      ) {
-        event.preventDefault();
-        this._panX =
-          this._gestureStartPan.x +
-          (event.clientX - this._gestureStartCenter.x);
-        this._panY =
-          this._gestureStartPan.y +
-          (event.clientY - this._gestureStartCenter.y);
-        this._clampPan();
-        this._applyZoom();
-      }
-    });
-
-    const endPointer = (event) => {
-      if (!this._gesturePointers.has(event.pointerId)) return;
-
-      this._gesturePointers.delete(event.pointerId);
-
-      if (this._gesturePointers.size === 1 && this._zoom > 1) {
-        const remaining = [...this._gesturePointers.values()][0];
-        this._gestureStartCenter = {
-          x: remaining.x,
-          y: remaining.y,
-        };
-        this._gestureStartPan = {
-          x: this._panX,
-          y: this._panY,
-        };
-      } else {
-        this._gestureStartDistance = 0;
-        this._gestureStartCenter = null;
-        this._gestureStartPan = null;
-      }
-    };
-
-    for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) {
-      stage.addEventListener(type, endPointer);
-    }
-
-    stage.addEventListener(
-      "wheel",
-      (event) => {
-        if (!event.ctrlKey) return;
-        event.preventDefault();
-        const factor = Math.exp(-event.deltaY * 0.002);
-        this._setZoom(this._zoom * factor, {
-          x: event.clientX,
-          y: event.clientY,
-        });
-      },
-      { passive: false }
-    );
-
-    stage.addEventListener("dblclick", (event) => {
-      if (isControl(event.target)) return;
-      event.preventDefault();
-
-      if (this._zoom > 1.05) {
-        this._resetZoom();
-      } else {
-        this._setZoom(2, {
-          x: event.clientX,
-          y: event.clientY,
-        });
-      }
-    });
-  }
-
   _resetFullscreenCameraCard() {
     this._clearFullscreenFillTimers();
     this._resetFullscreenZoom();
@@ -703,10 +491,8 @@ class TendaCameraCard extends HTMLElement {
     );
 
     this._applyFullscreenGeometry();
-    this._resetZoom();
     this._resetFullscreenCameraCard();
     await this._ensureFullscreenCameraCard(state);
-    this._bindFullscreenGestures();
   }
 
   async _closeFullscreen() {
@@ -728,7 +514,6 @@ class TendaCameraCard extends HTMLElement {
       // Nothing else to do.
     }
 
-    this._resetZoom();
     this._resetFullscreenCameraCard();
   }
 
@@ -1114,11 +899,9 @@ class TendaCameraCard extends HTMLElement {
 
       window.setTimeout(() => {
         this._applyFullscreenGeometry();
-        this._resetZoom();
-        this._resetFullscreenCameraCard();
+            this._resetFullscreenCameraCard();
         this._ensureFullscreenCameraCard(state);
-        this._bindFullscreenGestures();
-      }, 120);
+          }, 120);
     };
 
     window.addEventListener("orientationchange", refreshFullscreenLayout);
