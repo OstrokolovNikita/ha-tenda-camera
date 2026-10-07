@@ -103,11 +103,14 @@ async def async_ptz_service(
     speed = float(call.data.get("speed", 0.35))
 
     if action == "start":
-        duration = float(call.data.get("duration", 10.0))
+        duration = float(call.data.get("duration", 0.8))
         blocking = False
     else:
         duration = float(call.data.get("duration", 0.18))
         blocking = True
+
+    # Home Assistant's ONVIF service validates continuous_duration <= 1.
+    duration = max(0.05, min(duration, 1.0))
 
     data: dict[str, Any] = {
         "entity_id": onvif_camera,
