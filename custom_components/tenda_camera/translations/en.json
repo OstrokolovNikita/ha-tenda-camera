@@ -7,15 +7,20 @@
         "description": "Connect directly to the camera's local RPC2 API.\n\nLast connection diagnostic: **{diagnostic}**",
         "data": {
           "host": "Host / IP address",
+          "username": "Username",
+          "password": "Camera password",
           "port": "HTTPS port",
           "verify_ssl": "Verify SSL certificate"
         },
         "data_description": {
+          "username": "Usually admin on the RP7 V2.0.",
+          "password": "Password for the camera's local web interface.",
           "verify_ssl": "Disable this for the camera's default self-signed certificate."
         }
       }
     },
     "error": {
+      "invalid_auth": "Invalid camera username or password.",
       "cannot_connect": "Transport connection to the camera failed. The exact reason is shown above.",
       "rpc_error": "The camera answered, but RPC2 returned an error. The exact reason is shown above."
     },
