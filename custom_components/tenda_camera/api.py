@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import ssl
 from typing import Any
@@ -16,6 +17,10 @@ class TendaRpcError(Exception):
 
 class TendaRpcConnectionError(TendaRpcError):
     """Raised when the camera cannot be reached."""
+
+
+class TendaRpcAuthError(TendaRpcError):
+    """Raised when authentication is required or rejected."""
 
 
 class TendaRpcResponseError(TendaRpcError):
@@ -38,7 +43,10 @@ class TendaRpcResponseError(TendaRpcError):
         if message:
             details += f": {message}"
         if raw is not None:
-            details += f"; raw={json.dumps(raw, ensure_ascii=False, separators=(',', ':'))[:500]}"
+            details += (
+                "; raw="
+                + json.dumps(raw, ensure_ascii=False, separators=(",", ":"))[:500]
+            )
         super().__init__(details)
 
 
@@ -67,7 +75,7 @@ def _legacy_unverified_ssl_context() -> ssl.SSLContext:
 
 
 class TendaRpcClient:
-    """Small async client for the local Tenda /RPC2 endpoint."""
+    """Async client for the local Tenda /RPC2 endpoint."""
 
     def __init__(
         self,
@@ -75,14 +83,19 @@ class TendaRpcClient:
         host: str,
         port: int = 443,
         verify_ssl: bool = False,
+        username: str | None = None,
+        password: str | None = None,
         timeout: float = 10.0,
     ) -> None:
         self._session = session
         self._host = host.strip()
         self._port = port
         self._verify_ssl = verify_ssl
+        self._username = username
+        self._password = password
         self._timeout = aiohttp.ClientTimeout(total=timeout)
         self._ssl = None if verify_ssl else _legacy_unverified_ssl_context()
+        self._login_lock = asyncio.Lock()
 
     @property
     def base_url(self) -> str:
@@ -125,23 +138,32 @@ class TendaRpcClient:
 
         return f"{err.__class__.__name__}: {err}"
 
-    async def async_rpc(
+    @staticmethod
+    def _is_auth_required(data: dict[str, Any]) -> bool:
+        return (
+            data.get("result") is False
+            and data.get("errCode") == 401
+            and data.get("page") == "login"
+        )
+
+    async def _async_request(
         self,
         method: str,
         params: dict[str, Any] | None = None,
+        *,
+        login_page: bool = False,
     ) -> dict[str, Any]:
-        """Call one RPC method and return the decoded response."""
         payload: dict[str, Any] = {
             "method": method,
             "params": params or {},
         }
 
+        referer = "/login.html" if login_page else "/"
         headers = {
             "Accept": "application/json, text/plain, */*",
             "Content-Type": "application/json;charset=UTF-8",
             "Origin": self.origin,
-            "Referer": f"{self.origin}/",
-            "Connection": "close",
+            "Referer": f"{self.origin}{referer}",
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -184,6 +206,47 @@ class TendaRpcClient:
                 method,
                 message="invalid JSON response",
                 raw={"response": data},
+            )
+
+        return data
+
+    async def async_login(self) -> None:
+        """Authenticate exactly as the RP7 V2.0 web UI does."""
+        if self._username is None or self._password is None:
+            raise TendaRpcAuthError("username/password are required")
+
+        encoded_password = base64.b64encode(
+            self._password.encode("utf-8")
+        ).decode("ascii")
+
+        data = await self._async_request(
+            "global.login",
+            {
+                "username": self._username,
+                "password": encoded_password,
+            },
+            login_page=True,
+        )
+
+        if data.get("result") is not True:
+            raise TendaRpcAuthError("camera rejected username/password")
+
+    async def async_rpc(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Call one RPC method, re-authenticating once on session expiry."""
+        data = await self._async_request(method, params)
+
+        if self._is_auth_required(data):
+            async with self._login_lock:
+                await self.async_login()
+                data = await self._async_request(method, params)
+
+        if self._is_auth_required(data):
+            raise TendaRpcAuthError(
+                "camera still requires login after authentication"
             )
 
         if data.get("result") is False:
@@ -231,8 +294,8 @@ class TendaRpcClient:
         return params if isinstance(params, dict) else {}
 
     async def async_probe(self) -> dict[str, Any]:
-        """Read the minimum data needed to identify a camera."""
-        # Keep these sequential so a failed diagnostic shows the exact step.
+        """Authenticate and read the minimum data needed to identify a camera."""
+        await self.async_login()
         general = await self.async_get_config("General")
         device_name = await self.async_get_config("DeviceName")
         product = await self.async_get_product_definition()
