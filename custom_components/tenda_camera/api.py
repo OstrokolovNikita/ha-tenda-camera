@@ -96,6 +96,12 @@ class TendaRpcClient:
         self._timeout = aiohttp.ClientTimeout(total=timeout)
         self._ssl = None if verify_ssl else _legacy_unverified_ssl_context()
         self._login_lock = asyncio.Lock()
+        self._auth_generation = 0
+
+    @property
+    def auth_generation(self) -> int:
+        """Return a counter that changes after every successful login."""
+        return self._auth_generation
 
     @property
     def base_url(self) -> str:
@@ -231,6 +237,8 @@ class TendaRpcClient:
 
         if data.get("result") is not True:
             raise TendaRpcAuthError("camera rejected username/password")
+
+        self._auth_generation += 1
 
     async def async_rpc(
         self,
