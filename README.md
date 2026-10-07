@@ -8,7 +8,7 @@ Local Home Assistant integration for Tenda IP cameras.
 The integration talks directly to the camera on the LAN using the camera's
 local JSON RPC endpoint (`/RPC2`). It does not require TDSEE cloud access.
 
-## Current v0.6.2 scope
+## Current v0.6.3 scope
 
 The current milestone provides local RP7 V2.0 authentication, device discovery,
 two RTSP camera entities and writable configuration switches. All traffic stays
@@ -205,3 +205,23 @@ Dahua-style `SubscribeNotify.cgi` event stream after
 `eventManager.attach` and parses `client.notifyEventStream` messages.
 Diagnostics report the stream status and all event codes observed on this
 specific firmware.
+
+
+### v0.6.3 native card wrapper
+
+The bundled Tenda Camera card now mounts Home Assistant's own
+`picture-entity` card with `camera_view: live` underneath the PTZ overlay.
+This intentionally uses the same live-video implementation that already works
+when the camera entity is placed on a normal Home Assistant dashboard.
+
+### v0.6.3 event fallbacks
+
+Live Tenda events are now collected from multiple local sources:
+
+1. Tenda/Dahua-style `SubscribeNotify.cgi` after `eventManager.attach`;
+2. matching ONVIF binary-sensor entities from the ONVIF integration configured
+   for the same camera IP;
+3. legacy `getEventIndexes` only as a final diagnostic fallback.
+
+This is specifically meant to make RP7 V2.0 motion detection useful even when
+the proprietary notification transport is firmware-specific.
