@@ -13,6 +13,7 @@ class TendaCameraCard extends HTMLElement {
     this._fullscreenCameraCard = null;
     this._fullscreenCameraEntity = null;
     this._fullscreenCameraGeneration = 0;
+    this._fullscreenAspectRatio = null;
     this._render();
   }
 
@@ -125,13 +126,32 @@ class TendaCameraCard extends HTMLElement {
     );
   }
 
+  _getFullscreenAspectRatio() {
+    const width = Math.max(window.innerWidth, window.innerHeight);
+    const height = Math.min(window.innerWidth, window.innerHeight);
+    return `${Math.max(width, 1)}:${Math.max(height, 1)}`;
+  }
+
+  _resetFullscreenCameraCard() {
+    this._fullscreenCameraGeneration += 1;
+    this._fullscreenCameraCard = null;
+    this._fullscreenCameraEntity = null;
+    this._fullscreenAspectRatio = null;
+    this.shadowRoot
+      ?.querySelector(".fullscreen-camera-host")
+      ?.replaceChildren();
+  }
+
   async _ensureFullscreenCameraCard(state) {
     const host = this.shadowRoot?.querySelector(".fullscreen-camera-host");
     if (!host || !state || !this._hass) return;
 
+    const aspectRatio = this._getFullscreenAspectRatio();
+
     if (
       this._fullscreenCameraCard &&
-      this._fullscreenCameraEntity === state.entity_id
+      this._fullscreenCameraEntity === state.entity_id &&
+      this._fullscreenAspectRatio === aspectRatio
     ) {
       this._fullscreenCameraCard.hass = this._hass;
       return;
@@ -154,7 +174,8 @@ class TendaCameraCard extends HTMLElement {
         camera_view: "live",
         show_name: false,
         show_state: false,
-        fit_mode: "contain",
+        fit_mode: "cover",
+        aspect_ratio: aspectRatio,
         tap_action: { action: "none" },
         hold_action: { action: "none" },
       });
@@ -164,10 +185,15 @@ class TendaCameraCard extends HTMLElement {
       card.style.height = "100%";
       card.style.display = "block";
       card.style.background = "#000";
+      card.style.setProperty("--ha-card-background", "#000");
+      card.style.setProperty("--card-background-color", "#000");
+      card.style.setProperty("--ha-card-border-radius", "0px");
+      card.style.setProperty("--ha-card-box-shadow", "none");
 
       host.replaceChildren(card);
       this._fullscreenCameraCard = card;
       this._fullscreenCameraEntity = state.entity_id;
+      this._fullscreenAspectRatio = aspectRatio;
     } catch (err) {
       console.error("Tenda Camera: failed to mount fullscreen live card", err);
       host.textContent = "Не удалось открыть основной поток";
@@ -177,32 +203,63 @@ class TendaCameraCard extends HTMLElement {
     }
   }
 
-  _openFullscreen() {
+  async _openFullscreen() {
     const overlay = this.shadowRoot?.querySelector(".fullscreen-overlay");
     const state = this._mainCameraState();
     if (!overlay || !state) return;
 
     overlay.classList.add("show");
-    this._ensureFullscreenCameraCard(state);
 
-    if (overlay.requestFullscreen && !document.fullscreenElement) {
-      const request = overlay.requestFullscreen();
-      if (request?.catch) {
-        request.catch(() => {});
+    // Enter real browser/WebView fullscreen first. Android WebView only allows
+    // orientation locking reliably while an element is fullscreen.
+    try {
+      if (overlay.requestFullscreen && !document.fullscreenElement) {
+        await overlay.requestFullscreen();
       }
+    } catch (_err) {
+      // Keep the full-viewport overlay as a fallback.
     }
+
+    try {
+      if (screen.orientation?.lock) {
+        await screen.orientation.lock("landscape");
+      }
+    } catch (_err) {
+      // Some WebViews do not expose orientation locking. The overlay still
+      // fills the viewport and will adapt when the user rotates the phone.
+    }
+
+    // Let the viewport settle after the fullscreen/orientation transition,
+    // then create the high-quality main-stream card for the final ratio.
+    await new Promise((resolve) =>
+      window.requestAnimationFrame(() =>
+        window.requestAnimationFrame(resolve)
+      )
+    );
+
+    this._resetFullscreenCameraCard();
+    await this._ensureFullscreenCameraCard(state);
   }
 
-  _closeFullscreen() {
+  async _closeFullscreen() {
     const overlay = this.shadowRoot?.querySelector(".fullscreen-overlay");
     overlay?.classList.remove("show");
 
-    if (document.fullscreenElement && document.exitFullscreen) {
-      const exit = document.exitFullscreen();
-      if (exit?.catch) {
-        exit.catch(() => {});
-      }
+    try {
+      screen.orientation?.unlock?.();
+    } catch (_err) {
+      // Ignore unsupported orientation APIs.
     }
+
+    try {
+      if (document.fullscreenElement && document.exitFullscreen) {
+        await document.exitFullscreen();
+      }
+    } catch (_err) {
+      // Nothing else to do.
+    }
+
+    this._resetFullscreenCameraCard();
   }
 
   _render() {
@@ -262,6 +319,11 @@ class TendaCameraCard extends HTMLElement {
           inset: 0;
           z-index: 100000;
           display: none;
+          width: 100vw;
+          height: 100vh;
+          margin: 0;
+          padding: 0;
+          overflow: hidden;
           background: #000;
         }
         .fullscreen-overlay.show {
@@ -270,12 +332,19 @@ class TendaCameraCard extends HTMLElement {
         .fullscreen-camera-host {
           position: absolute;
           inset: 0;
+          width: 100%;
+          height: 100%;
+          overflow: hidden;
           background: #000;
         }
         .fullscreen-camera-host > * {
-          width: 100%;
-          height: 100%;
+          width: 100% !important;
+          height: 100% !important;
+          min-height: 100% !important;
           display: block;
+          margin: 0 !important;
+          border-radius: 0 !important;
+          background: #000 !important;
         }
         .fullscreen-close {
           position: absolute;
@@ -522,8 +591,30 @@ class TendaCameraCard extends HTMLElement {
       const overlay = this.shadowRoot?.querySelector(".fullscreen-overlay");
       if (overlay?.classList.contains("show") && !document.fullscreenElement) {
         overlay.classList.remove("show");
+        try {
+          screen.orientation?.unlock?.();
+        } catch (_err) {
+          // Ignore unsupported orientation APIs.
+        }
+        this._resetFullscreenCameraCard();
       }
     });
+
+    const refreshFullscreenLayout = () => {
+      const overlay = this.shadowRoot?.querySelector(".fullscreen-overlay");
+      if (!overlay?.classList.contains("show")) return;
+
+      const state = this._mainCameraState();
+      if (!state) return;
+
+      window.setTimeout(() => {
+        this._resetFullscreenCameraCard();
+        this._ensureFullscreenCameraCard(state);
+      }, 120);
+    };
+
+    window.addEventListener("orientationchange", refreshFullscreenLayout);
+    window.addEventListener("resize", refreshFullscreenLayout);
 
     this.shadowRoot.querySelectorAll("[data-feature]").forEach((button) => {
       button.addEventListener("click", () => {
