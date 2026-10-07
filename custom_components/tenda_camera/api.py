@@ -7,6 +7,7 @@ import ssl
 from typing import Any
 
 import aiohttp
+from yarl import URL
 
 from .const import RPC_PATH
 
@@ -102,6 +103,22 @@ class TendaRpcClient:
     def auth_generation(self) -> int:
         """Return a counter that changes after every successful login."""
         return self._auth_generation
+
+    @property
+    def session_cookie_value(self) -> str | None:
+        """Return the authenticated web-session cookie value if present."""
+        cookies = self._session.cookie_jar.filter_cookies(URL(self.base_url))
+        for name in ("SESSION", "session", "Session", "JSESSIONID"):
+            morsel = cookies.get(name)
+            if morsel is not None:
+                return morsel.value
+
+        # Some OEM firmwares use a non-standard cookie name. If there is
+        # exactly one cookie after login, it is still useful as the session id.
+        values = list(cookies.values())
+        if len(values) == 1:
+            return values[0].value
+        return None
 
     @property
     def base_url(self) -> str:
@@ -268,6 +285,46 @@ class TendaRpcClient:
             )
 
         return data
+
+    async def async_open_event_stream(self) -> aiohttp.ClientResponse:
+        """Open the Dahua-style SubscribeNotify event stream if RP7 exposes it."""
+        session_id = self.session_cookie_value
+        params = {"sessionId": session_id} if session_id else None
+        headers = {
+            "Accept": "text/html,application/xhtml+xml,application/json,*/*",
+            "Referer": f"{self.origin}/",
+            "Connection": "keep-alive",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/154.0.0.0 Safari/537.36"
+            ),
+        }
+
+        try:
+            response = await self._session.get(
+                f"{self.base_url}/SubscribeNotify.cgi",
+                params=params,
+                headers=headers,
+                ssl=self._ssl,
+                timeout=aiohttp.ClientTimeout(
+                    total=None,
+                    connect=10,
+                    sock_connect=10,
+                    sock_read=None,
+                ),
+            )
+        except (aiohttp.ClientError, asyncio.TimeoutError, ssl.SSLError) as err:
+            raise TendaRpcConnectionError(self._connection_detail(err)) from err
+
+        if response.status != 200:
+            body = await response.text()
+            response.release()
+            raise TendaRpcConnectionError(
+                f"SubscribeNotify HTTP {response.status} {response.reason}; "
+                f"body={body[:300]!r}"
+            )
+        return response
 
     async def async_get_config(self, name: str) -> Any:
         """Read one config table."""
