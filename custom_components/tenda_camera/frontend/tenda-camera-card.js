@@ -238,15 +238,16 @@ class TendaCameraCard extends HTMLElement {
         }
         .fullscreen-button {
           position: absolute;
-          top: 12px;
+          top: auto;
           right: 12px;
+          bottom: 12px;
           z-index: 7;
           width: 40px;
           height: 40px;
           border: 0;
-          border-radius: 50%;
+          border-radius: 8px;
           color: white;
-          background: rgba(0, 0, 0, 0.52);
+          background: rgba(0, 0, 0, 0.42);
           display: grid;
           place-items: center;
           cursor: pointer;
@@ -296,7 +297,8 @@ class TendaCameraCard extends HTMLElement {
           --mdc-icon-size: 28px;
         }
         .fullscreen-overlay .joystick {
-          right: max(18px, env(safe-area-inset-right));
+          left: max(18px, env(safe-area-inset-left));
+          right: auto;
           bottom: max(18px, env(safe-area-inset-bottom));
           z-index: 100002;
         }
@@ -328,7 +330,8 @@ class TendaCameraCard extends HTMLElement {
         .joystick {
           --size: 44px;
           position: absolute;
-          right: 12px;
+          left: 12px;
+          right: auto;
           bottom: 12px;
           z-index: 5;
           width: calc(var(--size) * 3);
