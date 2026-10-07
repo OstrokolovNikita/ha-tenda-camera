@@ -4,10 +4,11 @@ import logging
 from typing import Any
 
 import probatio
+from aiohttp import CookieJar
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from .api import (
     TendaRpcAuthError,
@@ -48,8 +49,13 @@ class TendaCameraConfigFlow(ConfigFlow, domain=DOMAIN):
             username = str(user_input[CONF_USERNAME])
             password = str(user_input[CONF_PASSWORD])
 
+            session = async_create_clientsession(
+                self.hass,
+                verify_ssl=verify_ssl,
+                cookie_jar=CookieJar(unsafe=True, quote_cookie=False),
+            )
             client = TendaRpcClient(
-                session=async_get_clientsession(self.hass),
+                session=session,
                 host=host,
                 port=port,
                 verify_ssl=verify_ssl,
