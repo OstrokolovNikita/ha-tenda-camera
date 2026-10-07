@@ -10,6 +10,9 @@ class TendaCameraCard extends HTMLElement {
     this._nativeCameraCard = null;
     this._nativeCameraEntity = null;
     this._nativeCameraGeneration = 0;
+    this._fullscreenCameraCard = null;
+    this._fullscreenCameraEntity = null;
+    this._fullscreenCameraGeneration = 0;
     this._render();
   }
 
@@ -55,6 +58,7 @@ class TendaCameraCard extends HTMLElement {
   disconnectedCallback() {
     this._stopPtzTimerOnly();
     this._nativeCameraGeneration += 1;
+    this._fullscreenCameraGeneration += 1;
   }
 
   async _ensureNativeCameraCard(state) {
@@ -108,6 +112,99 @@ class TendaCameraCard extends HTMLElement {
     }
   }
 
+  _mainCameraState() {
+    if (!this._hass) return null;
+
+    return (
+      Object.values(this._hass.states || {}).find(
+        (state) =>
+          state.entity_id.startsWith("camera.") &&
+          state.attributes?.brand === "Tenda" &&
+          state.attributes?.stream_role === "main"
+      ) || this._cameraState()
+    );
+  }
+
+  async _ensureFullscreenCameraCard(state) {
+    const host = this.shadowRoot?.querySelector(".fullscreen-camera-host");
+    if (!host || !state || !this._hass) return;
+
+    if (
+      this._fullscreenCameraCard &&
+      this._fullscreenCameraEntity === state.entity_id
+    ) {
+      this._fullscreenCameraCard.hass = this._hass;
+      return;
+    }
+
+    const generation = ++this._fullscreenCameraGeneration;
+
+    try {
+      if (typeof window.loadCardHelpers !== "function") {
+        throw new Error("Home Assistant card helpers are unavailable");
+      }
+
+      const helpers = await window.loadCardHelpers();
+      if (generation !== this._fullscreenCameraGeneration) return;
+
+      const card = helpers.createCardElement({
+        type: "picture-entity",
+        entity: state.entity_id,
+        camera_image: state.entity_id,
+        camera_view: "live",
+        show_name: false,
+        show_state: false,
+        fit_mode: "contain",
+        tap_action: { action: "none" },
+        hold_action: { action: "none" },
+      });
+
+      card.hass = this._hass;
+      card.style.width = "100%";
+      card.style.height = "100%";
+      card.style.display = "block";
+      card.style.background = "#000";
+
+      host.replaceChildren(card);
+      this._fullscreenCameraCard = card;
+      this._fullscreenCameraEntity = state.entity_id;
+    } catch (err) {
+      console.error("Tenda Camera: failed to mount fullscreen live card", err);
+      host.textContent = "Не удалось открыть основной поток";
+      host.style.color = "white";
+      host.style.display = "grid";
+      host.style.placeItems = "center";
+    }
+  }
+
+  _openFullscreen() {
+    const overlay = this.shadowRoot?.querySelector(".fullscreen-overlay");
+    const state = this._mainCameraState();
+    if (!overlay || !state) return;
+
+    overlay.classList.add("show");
+    this._ensureFullscreenCameraCard(state);
+
+    if (overlay.requestFullscreen && !document.fullscreenElement) {
+      const request = overlay.requestFullscreen();
+      if (request?.catch) {
+        request.catch(() => {});
+      }
+    }
+  }
+
+  _closeFullscreen() {
+    const overlay = this.shadowRoot?.querySelector(".fullscreen-overlay");
+    overlay?.classList.remove("show");
+
+    if (document.fullscreenElement && document.exitFullscreen) {
+      const exit = document.exitFullscreen();
+      if (exit?.catch) {
+        exit.catch(() => {});
+      }
+    }
+  }
+
   _render() {
     this.shadowRoot.innerHTML = `
       <style>
@@ -139,17 +236,69 @@ class TendaCameraCard extends HTMLElement {
           height: 100%;
           display: block;
         }
-        .title {
+        .fullscreen-button {
           position: absolute;
-          left: 12px;
-          top: 10px;
-          z-index: 4;
-          padding: 6px 10px;
-          border-radius: 14px;
+          top: 12px;
+          right: 12px;
+          z-index: 7;
+          width: 40px;
+          height: 40px;
+          border: 0;
+          border-radius: 50%;
           color: white;
-          background: rgba(0, 0, 0, 0.45);
-          font-size: 14px;
+          background: rgba(0, 0, 0, 0.52);
+          display: grid;
+          place-items: center;
+          cursor: pointer;
           backdrop-filter: blur(5px);
+          -webkit-tap-highlight-color: transparent;
+        }
+        .fullscreen-button ha-icon {
+          --mdc-icon-size: 25px;
+        }
+        .fullscreen-overlay {
+          position: fixed;
+          inset: 0;
+          z-index: 100000;
+          display: none;
+          background: #000;
+        }
+        .fullscreen-overlay.show {
+          display: block;
+        }
+        .fullscreen-camera-host {
+          position: absolute;
+          inset: 0;
+          background: #000;
+        }
+        .fullscreen-camera-host > * {
+          width: 100%;
+          height: 100%;
+          display: block;
+        }
+        .fullscreen-close {
+          position: absolute;
+          top: max(12px, env(safe-area-inset-top));
+          right: max(12px, env(safe-area-inset-right));
+          z-index: 100003;
+          width: 44px;
+          height: 44px;
+          border: 0;
+          border-radius: 50%;
+          color: white;
+          background: rgba(0, 0, 0, 0.58);
+          display: grid;
+          place-items: center;
+          cursor: pointer;
+          backdrop-filter: blur(5px);
+        }
+        .fullscreen-close ha-icon {
+          --mdc-icon-size: 28px;
+        }
+        .fullscreen-overlay .joystick {
+          right: max(18px, env(safe-area-inset-right));
+          bottom: max(18px, env(safe-area-inset-bottom));
+          z-index: 100002;
         }
         .events {
           position: absolute;
@@ -261,7 +410,9 @@ class TendaCameraCard extends HTMLElement {
       <ha-card>
         <div class="stage">
           <div class="native-camera-host"></div>
-          <div class="title">Tenda Camera</div>
+          <button class="fullscreen-button" data-fullscreen title="На весь экран">
+            <ha-icon icon="mdi:fullscreen"></ha-icon>
+          </button>
 
           <div class="events">
             <div class="event motion">
@@ -309,6 +460,31 @@ class TendaCameraCard extends HTMLElement {
             <span>Слежение</span>
           </button>
         </div>
+
+        <div class="fullscreen-overlay">
+          <div class="fullscreen-camera-host"></div>
+          <button class="fullscreen-close" data-fullscreen-close title="Закрыть">
+            <ha-icon icon="mdi:close"></ha-icon>
+          </button>
+
+          <div class="joystick">
+            <button class="ptz up" data-dir="up" title="Вверх">
+              <ha-icon icon="mdi:chevron-up"></ha-icon>
+            </button>
+            <button class="ptz left" data-dir="left" title="Влево">
+              <ha-icon icon="mdi:chevron-left"></ha-icon>
+            </button>
+            <button class="ptz stop" data-stop title="Стоп">
+              <ha-icon icon="mdi:stop"></ha-icon>
+            </button>
+            <button class="ptz right" data-dir="right" title="Вправо">
+              <ha-icon icon="mdi:chevron-right"></ha-icon>
+            </button>
+            <button class="ptz down" data-dir="down" title="Вниз">
+              <ha-icon icon="mdi:chevron-down"></ha-icon>
+            </button>
+          </div>
+        </div>
       </ha-card>
     `;
 
@@ -326,9 +502,24 @@ class TendaCameraCard extends HTMLElement {
       }
     });
 
+    this.shadowRoot.querySelectorAll("[data-stop]").forEach((button) => {
+      button.addEventListener("click", () => this._stopPtz());
+    });
+
     this.shadowRoot
-      .querySelector("[data-stop]")
-      .addEventListener("click", () => this._stopPtz());
+      .querySelector("[data-fullscreen]")
+      ?.addEventListener("click", () => this._openFullscreen());
+
+    this.shadowRoot
+      .querySelector("[data-fullscreen-close]")
+      ?.addEventListener("click", () => this._closeFullscreen());
+
+    document.addEventListener("fullscreenchange", () => {
+      const overlay = this.shadowRoot?.querySelector(".fullscreen-overlay");
+      if (overlay?.classList.contains("show") && !document.fullscreenElement) {
+        overlay.classList.remove("show");
+      }
+    });
 
     this.shadowRoot.querySelectorAll("[data-feature]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -427,12 +618,9 @@ class TendaCameraCard extends HTMLElement {
     if (this._nativeCameraCard) {
       this._nativeCameraCard.hass = this._hass;
     }
-
-    const title =
-      this._config.name ||
-      state.attributes?.friendly_name ||
-      "Tenda Camera";
-    this.shadowRoot.querySelector(".title").textContent = title;
+    if (this._fullscreenCameraCard) {
+      this._fullscreenCameraCard.hass = this._hass;
+    }
 
     this._setActive(".motion-toggle", state.attributes?.motion_detection);
     this._setActive(".human-toggle", state.attributes?.human_detection);
