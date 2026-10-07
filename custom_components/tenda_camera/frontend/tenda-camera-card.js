@@ -4,7 +4,8 @@ class TendaCameraCard extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._config = null;
     this._hass = null;
-    this._streamUrl = null;
+    this._ptzTimer = null;
+    this._ptzDirection = null;
     this._ptzActive = false;
     this._render();
   }
@@ -38,6 +39,10 @@ class TendaCameraCard extends HTMLElement {
     return 5;
   }
 
+  disconnectedCallback() {
+    this._stopPtzTimerOnly();
+  }
+
   _render() {
     this.shadowRoot.innerHTML = `
       <style>
@@ -56,13 +61,11 @@ class TendaCameraCard extends HTMLElement {
           background: #111;
           overflow: hidden;
         }
-        img.stream {
+        ha-camera-stream.stream {
           width: 100%;
           height: 100%;
-          object-fit: cover;
           display: block;
-          user-select: none;
-          -webkit-user-drag: none;
+          --ha-camera-stream-fit-mode: cover;
         }
         .title {
           position: absolute;
@@ -185,7 +188,7 @@ class TendaCameraCard extends HTMLElement {
 
       <ha-card>
         <div class="stage">
-          <img class="stream" alt="Tenda camera stream">
+          <ha-camera-stream class="stream"></ha-camera-stream>
           <div class="title">Tenda Camera</div>
 
           <div class="events">
@@ -279,28 +282,53 @@ class TendaCameraCard extends HTMLElement {
     return this._hass?.states?.[this._config?.entity];
   }
 
-  _startPtz(direction) {
-    if (!this._hass || !this._config?.entity) return;
-    this._ptzActive = true;
+  _ptzPulse() {
+    if (
+      !this._hass ||
+      !this._config?.entity ||
+      !this._ptzActive ||
+      !this._ptzDirection
+    ) {
+      return;
+    }
+
     this._hass.callService("tenda_camera", "ptz", {
       entity_id: this._config.entity,
-      action: "start",
-      direction,
-      speed: 0.28,
-      duration: 10,
+      action: "pulse",
+      direction: this._ptzDirection,
+      speed: 0.22,
+      duration: 0.22,
     });
+  }
+
+  _startPtz(direction) {
+    if (!this._hass || !this._config?.entity) return;
+
+    this._stopPtzTimerOnly();
+    this._ptzActive = true;
+    this._ptzDirection = direction;
+    this._ptzPulse();
+
+    // ONVIF continuous_duration is limited to <= 1 second by Home Assistant.
+    // Repeating short pulses gives smooth press-and-hold movement without
+    // violating the service schema.
+    this._ptzTimer = window.setInterval(() => this._ptzPulse(), 180);
+  }
+
+  _stopPtzTimerOnly() {
+    if (this._ptzTimer !== null) {
+      window.clearInterval(this._ptzTimer);
+      this._ptzTimer = null;
+    }
   }
 
   _stopPtz() {
     if (!this._hass || !this._config?.entity) return;
-    if (!this._ptzActive) {
-      this._hass.callService("tenda_camera", "ptz", {
-        entity_id: this._config.entity,
-        action: "stop",
-      });
-      return;
-    }
+
+    this._stopPtzTimerOnly();
     this._ptzActive = false;
+    this._ptzDirection = null;
+
     this._hass.callService("tenda_camera", "ptz", {
       entity_id: this._config.entity,
       action: "stop",
@@ -323,14 +351,13 @@ class TendaCameraCard extends HTMLElement {
 
     if (!state) return;
 
-    const token = state.attributes?.access_token;
-    if (token) {
-      const url =
-        `/api/camera_proxy_stream/${state.entity_id}?token=${encodeURIComponent(token)}`;
-      if (url !== this._streamUrl) {
-        this._streamUrl = url;
-        this.shadowRoot.querySelector("img.stream").src = url;
-      }
+    const stream = this.shadowRoot.querySelector("ha-camera-stream.stream");
+    if (stream) {
+      stream.stateObj = state;
+      stream.controls = false;
+      stream.muted = true;
+      stream.fitMode = "cover";
+      stream.aspectRatio = 16 / 9;
     }
 
     const title =
