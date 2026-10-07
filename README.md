@@ -8,7 +8,7 @@ Local Home Assistant integration for Tenda IP cameras.
 The integration talks directly to the camera on the LAN using the camera's
 local JSON RPC endpoint (`/RPC2`). It does not require TDSEE cloud access.
 
-## Current v0.6.0 scope
+## Current v0.6.2 scope
 
 The current milestone provides local RP7 V2.0 authentication, device discovery,
 two RTSP camera entities and writable configuration switches. All traffic stays
@@ -179,3 +179,29 @@ The integration now exposes a diagnostic entity named **RPC2 event status**
 with the attach SID, currently polled codes, values and short raw responses.
 This is intentionally diagnostic: it prevents future fixes from guessing
 whether the RP7 uses different event codes or a different local event transport.
+
+
+### v0.6.2 card playback
+
+The bundled card no longer renders `/api/camera_proxy_stream` directly. That
+endpoint behaves like an MJPEG proxy and can look like a slideshow. The card
+now embeds Home Assistant's native `ha-camera-stream` player, so Home Assistant
+can select WebRTC/go2rtc when available and otherwise use its normal HLS path.
+
+For the best browser compatibility use H.264 for the stream shown in Home
+Assistant. H.265 is kept as a valid camera setting, but browser playback support
+depends on the Home Assistant/player/browser path and is not equivalent to the
+native TDSEE app.
+
+Touch PTZ now repeats short ONVIF moves while an arrow is held and sends Stop
+when released. This avoids Home Assistant's one-second
+`continuous_duration` limit.
+
+### v0.6.2 local events
+
+The previous `getEventIndexes` polling did not prove that RP7 events were
+actually being delivered. The integration now also opens the local
+Dahua-style `SubscribeNotify.cgi` event stream after
+`eventManager.attach` and parses `client.notifyEventStream` messages.
+Diagnostics report the stream status and all event codes observed on this
+specific firmware.
