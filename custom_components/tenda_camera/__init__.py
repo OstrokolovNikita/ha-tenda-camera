@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from aiohttp import CookieJar
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from .api import TendaRpcClient, TendaRpcError
 from .coordinator import TendaCoordinator
@@ -30,7 +32,12 @@ async def async_setup_entry(
     entry: TendaConfigEntry,
 ) -> bool:
     """Set up Tenda Camera from a config entry."""
-    session = async_get_clientsession(hass)
+    verify_ssl = bool(entry.data.get("verify_ssl", False))
+    session = async_create_clientsession(
+        hass,
+        verify_ssl=verify_ssl,
+        cookie_jar=CookieJar(unsafe=True, quote_cookie=False),
+    )
     client = TendaRpcClient(
         session=session,
         **dict(entry.data),
