@@ -5,6 +5,7 @@ from pathlib import Path
 
 from aiohttp import CookieJar
 
+from homeassistant.components import lovelace
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
@@ -33,7 +34,49 @@ PLATFORMS: list[Platform] = [
 
 
 FRONTEND_URL = "/tenda-camera"
-FRONTEND_MODULE = f"{FRONTEND_URL}/tenda-camera-card.js?v=0.6.5"
+FRONTEND_MODULE = f"{FRONTEND_URL}/tenda-camera-card.js?v=0.6.6"
+FRONTEND_RESOURCE_PREFIX = f"{FRONTEND_URL}/tenda-camera-card.js"
+
+
+async def _async_register_lovelace_resource(hass: HomeAssistant) -> bool:
+    """Register the card as a Lovelace resource so all clients load it."""
+    lovelace_data = hass.data.get(lovelace.LOVELACE_DATA)
+    if lovelace_data is None:
+        return False
+
+    resources = lovelace_data.resources
+    if (
+        not isinstance(
+            resources,
+            lovelace.resources.ResourceStorageCollection,
+        )
+        or resources.store is None
+    ):
+        return False
+
+    if not resources.loaded:
+        await resources.async_load()
+        resources.loaded = True
+
+    for item in resources.async_items():
+        url = item["url"]
+        if not url.startswith(FRONTEND_RESOURCE_PREFIX):
+            continue
+
+        if url != FRONTEND_MODULE:
+            await resources.async_update_item(
+                item["id"],
+                {"url": FRONTEND_MODULE},
+            )
+        return True
+
+    await resources.async_create_item(
+        {
+            "res_type": "module",
+            "url": FRONTEND_MODULE,
+        }
+    )
+    return True
 
 
 async def async_setup(
@@ -51,7 +94,13 @@ async def async_setup(
             )
         ]
     )
-    add_extra_js_url(hass, FRONTEND_MODULE)
+    # Storage-mode dashboards load the card as a real Lovelace resource.
+    # This is important for Companion App/WebView clients where dynamically
+    # added frontend modules may stay cached or not be picked up immediately.
+    if not await _async_register_lovelace_resource(hass):
+        # YAML-mode/fallback path.
+        add_extra_js_url(hass, FRONTEND_MODULE)
+
     async_register_services(hass)
     return True
 
