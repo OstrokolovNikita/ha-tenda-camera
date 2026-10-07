@@ -9,7 +9,6 @@ from homeassistant.components.camera import (
     CameraEntityDescription,
     CameraEntityFeature,
 )
-from homeassistant.components.camera.helper import async_get_stream_image
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -177,8 +176,10 @@ class TendaRtspCamera(TendaCameraEntity, Camera):
         height: int | None = None,
     ) -> bytes | None:
         """Decode a still from RTSP for the MJPEG-compatible HA fallback."""
-        return await async_get_stream_image(
-            self,
+        stream = self.stream or await self.async_create_stream()
+        if stream is None:
+            return None
+        return await stream.async_get_image(
             width=width,
             height=height,
             wait_for_next_keyframe=True,
