@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.6.6
+
+- Make the dashboard stream deterministic: the normal Tenda Camera card always uses the RP7 sub-stream, while fullscreen always opens the main stream.
+- Register the bundled card as a real Lovelace module resource in storage mode instead of relying only on dynamic frontend-module injection.
+- Keep the previous frontend extra-module registration only as a YAML-mode fallback.
+- This specifically fixes Companion App/mobile clients showing `Custom element doesn't exist: tenda-camera-card`.
+- Bump the card URL on every release so browser and mobile WebView caches receive the new JavaScript.
+
 ## v0.6.5
 
 - Remove the custom stream-name badge from the dashboard card.
