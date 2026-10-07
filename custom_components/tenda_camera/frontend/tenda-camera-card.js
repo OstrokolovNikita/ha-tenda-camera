@@ -10,12 +10,14 @@ class TendaCameraCard extends HTMLElement {
   }
 
   static getStubConfig(hass) {
-    const entity = Object.values(hass.states || {}).find(
+    const tendaCameras = Object.values(hass.states || {}).filter(
       (state) =>
         state.entity_id.startsWith("camera.") &&
-        state.attributes?.brand === "Tenda" &&
-        state.attributes?.stream_role === "main"
+        state.attributes?.brand === "Tenda"
     );
+    const entity =
+      tendaCameras.find((state) => state.attributes?.stream_role === "sub") ||
+      tendaCameras.find((state) => state.attributes?.stream_role === "main");
     return { entity: entity?.entity_id || "" };
   }
 
