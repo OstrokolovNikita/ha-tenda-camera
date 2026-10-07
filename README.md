@@ -2,28 +2,28 @@
 
 Local Home Assistant integration for Tenda IP cameras.
 
-> **Status: alpha. Local RP7 V2.0 authentication and read-only state are working.**
+> **Status: alpha. RP7 V2.0 local authentication, RTSP streams and core configuration controls are working.**
 > The first tested device is **Tenda RP7 V2.0** with firmware **V21.7.18.99**.
 
 The integration talks directly to the camera on the LAN using the camera's
 local JSON RPC endpoint (`/RPC2`). It does not require TDSEE cloud access.
 
-## Current v0.2.1 scope
+## Current v0.3.0 scope
 
-The current milestone is deliberately read-only. RP7 V2.0 local authentication,
-device discovery and configuration reads are working in Home Assistant. Camera
-settings are not changed yet.
+The current milestone provides local RP7 V2.0 authentication, device discovery,
+two RTSP camera entities and writable configuration switches. All traffic stays
+on the LAN; TDSEE cloud access is not required for these functions.
 
-Currently read:
+Currently available:
 
 - model, hardware version, firmware and stable device serial;
-- motion detection enabled state;
-- human detection filter enabled state;
-- human tracking enabled state;
-- blind/tamper detection enabled state;
-- ONVIF enabled state;
-- RTSP enabled state;
-- record mode.
+- main RTSP stream and sub-stream as native Home Assistant camera entities;
+- writable motion detection switch;
+- writable human detection switch;
+- writable human tracking switch;
+- writable blind/tamper detection switch;
+- ONVIF/RTSP and recording diagnostics;
+- manual state refresh and RPC2 re-authentication buttons.
 
 The raw HAR captures used during reverse engineering are **not committed**.
 They can contain device identifiers and local network information.
