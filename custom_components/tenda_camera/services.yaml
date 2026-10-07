@@ -1,0 +1,68 @@
+ptz:
+  name: PTZ
+  description: Move the matching Tenda camera through its ONVIF PTZ endpoint.
+  fields:
+    entity_id:
+      required: true
+      example: camera.rp7v2_0_main_stream
+      selector:
+        entity:
+          integration: tenda_camera
+          domain: camera
+    action:
+      required: true
+      default: pulse
+      selector:
+        select:
+          options:
+            - start
+            - stop
+            - pulse
+    direction:
+      example: left
+      selector:
+        select:
+          options:
+            - up
+            - down
+            - left
+            - right
+    speed:
+      default: 0.28
+      selector:
+        number:
+          min: 0.05
+          max: 1
+          step: 0.01
+    duration:
+      default: 0.18
+      selector:
+        number:
+          min: 0.05
+          max: 10
+          step: 0.05
+
+set_feature:
+  name: Set camera feature
+  description: Change one writable RP7 camera feature.
+  fields:
+    entity_id:
+      required: true
+      example: camera.rp7v2_0_main_stream
+      selector:
+        entity:
+          integration: tenda_camera
+          domain: camera
+    feature:
+      required: true
+      selector:
+        select:
+          options:
+            - motion
+            - human_detection
+            - human_tracking
+            - tamper_detection
+    enabled:
+      required: true
+      selector:
+        boolean:
