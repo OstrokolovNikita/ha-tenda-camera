@@ -72,11 +72,6 @@ class TendaRtspCamera(TendaCameraEntity, Camera):
         super().__init__(entry, coordinator)
         self.entity_description = description
         self._event_coordinator = entry.runtime_data.event_coordinator
-        self._attr_supported_features = (
-            CameraEntityFeature.STREAM
-            if description.native_stream
-            else CameraEntityFeature(0)
-        )
         self._attr_unique_id = (
             f"{self._device_unique_id}_{description.key}"
         )
@@ -94,6 +89,38 @@ class TendaRtspCamera(TendaCameraEntity, Camera):
     def _handle_event_update(self) -> None:
         """Refresh camera card attributes when a live event changes."""
         self.async_write_ha_state()
+
+    def _configured_codec(self) -> str | None:
+        """Return the current codec for this stream."""
+        encode = self.coordinator.data.get("encode")
+        if not isinstance(encode, dict):
+            return None
+
+        format_key = (
+            "MainFormat"
+            if self.entity_description.subtype == 0
+            else "ExtraFormat"
+        )
+        formats = encode.get(format_key)
+        if not isinstance(formats, list) or not formats:
+            return None
+
+        first = formats[0]
+        if not isinstance(first, dict):
+            return None
+        video = first.get("Video")
+        if not isinstance(video, dict):
+            return None
+
+        codec = video.get("Compression")
+        return codec if isinstance(codec, str) else None
+
+    @property
+    def supported_features(self) -> CameraEntityFeature:
+        """Use native HA streaming only when the browser-friendly codec is H.264."""
+        if self._configured_codec() == "H.264":
+            return CameraEntityFeature.STREAM
+        return CameraEntityFeature(0)
 
     @property
     def use_stream_for_stills(self) -> bool:
@@ -114,6 +141,7 @@ class TendaRtspCamera(TendaCameraEntity, Camera):
                 if self.entity_description.subtype == 0
                 else "sub"
             ),
+            "stream_codec": self._configured_codec(),
             "motion_detection": (
                 bool(motion.get("Enable"))
                 if isinstance(motion, dict)
