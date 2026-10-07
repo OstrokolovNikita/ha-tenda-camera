@@ -45,6 +45,20 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         self.device_info = device_info
         self.supported_codes: set[str] = set()
         self.unsupported_codes: set[str] = set()
+        self._attached = False
+        self.attach_sid: Any | None = None
+        self.last_raw: dict[str, Any] = {}
+
+    async def async_attach(self) -> None:
+        """Activate the RPC2 event manager before reading event indexes."""
+        data = await self.client.async_rpc(
+            "eventManager.attach",
+            {"codes": ["All"]},
+        )
+        params = data.get("params") or {}
+        self.attach_sid = params.get("SID")
+        self._attached = True
+        _LOGGER.debug("RP7 event manager attached; SID=%r", self.attach_sid)
 
     async def _async_event_active(self, code: str) -> bool | None:
         if code in self.unsupported_codes:
@@ -57,14 +71,20 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
             )
         except TendaRpcResponseError as err:
             self.unsupported_codes.add(code)
+            self.last_raw[code] = {
+                "error": str(err),
+                "raw": err.raw,
+            }
             _LOGGER.debug("RP7 event code %s is unsupported: %s", code, err)
             return None
 
+        self.last_raw[code] = data
         params = data.get("params") or {}
         indexes = params.get("indexes")
 
+        # On this RPC family an inactive event is commonly returned as an
+        # empty params object rather than {"indexes": []}.
         if indexes is None:
-            # Successful call without indexes is treated as supported/inactive.
             indexes = []
 
         if not isinstance(indexes, list):
@@ -80,12 +100,22 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
 
     async def _async_update_data(self) -> dict[str, bool | None]:
         try:
+            if not self._attached:
+                await self.async_attach()
+
             return {
                 code: await self._async_event_active(code)
                 for code in EVENT_CODES
             }
-        except (
-            TendaRpcAuthError,
-            TendaRpcConnectionError,
-        ) as err:
+        except TendaRpcAuthError:
+            # Re-authentication creates a new camera session; attach the
+            # event manager again on the next cycle.
+            self._attached = False
+            raise
+        except TendaRpcConnectionError as err:
             raise UpdateFailed(f"Unable to poll camera events: {err}") from err
+        except TendaRpcResponseError as err:
+            # Some firmwares may refuse eventManager.attach. Surface the
+            # failure rather than pretending that every event is simply off.
+            self._attached = False
+            raise UpdateFailed(f"Unable to attach camera event manager: {err}") from err
