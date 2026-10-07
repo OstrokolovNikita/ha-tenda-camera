@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 import aiohttp
@@ -58,6 +59,13 @@ class TendaRpcClient:
         """Return base camera URL."""
         return f"https://{self._host}:{self._port}"
 
+    @property
+    def origin(self) -> str:
+        """Return browser-style Origin used by the camera web UI."""
+        if self._port == 443:
+            return f"https://{self._host}"
+        return self.base_url
+
     async def async_rpc(
         self,
         method: str,
@@ -69,16 +77,39 @@ class TendaRpcClient:
             "params": params or {},
         }
 
+        # RP7 V2.0's embedded web server is picky. Match the request shape used
+        # by its own web UI instead of relying on aiohttp's default JSON headers.
+        headers = {
+            "Accept": "application/json, text/plain, */*",
+            "Content-Type": "application/json;charset=UTF-8",
+            "Origin": self.origin,
+            "Referer": f"{self.origin}/",
+            "Connection": "close",
+            "User-Agent": "Mozilla/5.0 HomeAssistant TendaCamera/0.1",
+        }
+
         try:
             async with self._session.post(
                 f"{self.base_url}{RPC_PATH}",
-                json=payload,
+                data=json.dumps(payload, separators=(",", ":")),
+                headers=headers,
                 ssl=None if self._verify_ssl else False,
                 timeout=self._timeout,
             ) as response:
-                response.raise_for_status()
-                data = await response.json(content_type=None)
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
+                body = await response.text()
+                if response.status != 200:
+                    raise TendaRpcConnectionError(
+                        f"HTTP {response.status}: {body[:200]}"
+                    )
+                try:
+                    data = json.loads(body)
+                except ValueError as err:
+                    raise TendaRpcConnectionError(
+                        f"Invalid JSON response: {body[:200]}"
+                    ) from err
+        except TendaRpcConnectionError:
+            raise
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
             raise TendaRpcConnectionError(str(err)) from err
 
         if not isinstance(data, dict):
