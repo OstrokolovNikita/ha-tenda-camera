@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
+from datetime import timedelta
 import json
 import logging
-from datetime import timedelta
-from collections.abc import Callable
 from typing import Any
 
 from homeassistant.const import CONF_HOST, STATE_OFF, STATE_ON
@@ -194,6 +194,108 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
             self._async_event_listener(),
             f"{DOMAIN} SubscribeNotify",
         )
+
+    def _classify_onvif_entity(self, label: str) -> str | None:
+        """Map a matching ONVIF event entity to our canonical sensor."""
+        value = label.lower()
+
+        if any(word in value for word in ("human", "person", "pedestrian")):
+            return "SmartMotionHuman"
+        if any(word in value for word in ("tamper", "blind", "cover")):
+            return "VideoBlind"
+        if "motion" in value:
+            return "VideoMotion"
+        return None
+
+    def _sync_onvif_state(self, canonical: str) -> None:
+        """Mirror matching ONVIF event state into this integration."""
+        entity_ids = self.onvif_sources.get(canonical) or []
+        states = [self.hass.states.get(entity_id) for entity_id in entity_ids]
+        known = [
+            state.state
+            for state in states
+            if state is not None and state.state in {STATE_ON, STATE_OFF}
+        ]
+        if not known:
+            return
+
+        self._set_event_state(
+            canonical,
+            STATE_ON in known,
+            pulse=False,
+        )
+
+    def _async_start_onvif_mirror(self) -> None:
+        """Mirror ONVIF event entities configured for the same camera."""
+        if self._onvif_unsub is not None:
+            return
+
+        registry = er.async_get(self.hass)
+        found: list[str] = []
+
+        for config_entry in self.hass.config_entries.async_entries("onvif"):
+            if str(config_entry.data.get(CONF_HOST, "")).strip() != self.client.host:
+                continue
+
+            for entity_entry in er.async_entries_for_config_entry(
+                registry,
+                config_entry.entry_id,
+            ):
+                if not entity_entry.entity_id.startswith("binary_sensor."):
+                    continue
+
+                label = " ".join(
+                    str(part)
+                    for part in (
+                        entity_entry.entity_id,
+                        entity_entry.name,
+                        entity_entry.original_name,
+                        entity_entry.translation_key,
+                        entity_entry.unique_id,
+                    )
+                    if part
+                )
+                canonical = self._classify_onvif_entity(label)
+                if canonical is None:
+                    continue
+
+                if entity_entry.entity_id not in self.onvif_sources[canonical]:
+                    self.onvif_sources[canonical].append(entity_entry.entity_id)
+                found.append(entity_entry.entity_id)
+
+        if not found:
+            self.last_raw["onvif_mirror"] = {
+                "status": "no matching ONVIF event entities",
+            }
+            return
+
+        for canonical in self.onvif_sources:
+            self._sync_onvif_state(canonical)
+
+        @callback
+        def _on_onvif_state_change(event) -> None:
+            new_state = event.data.get("new_state")
+            if new_state is None:
+                return
+
+            for canonical, entity_ids in self.onvif_sources.items():
+                if new_state.entity_id in entity_ids:
+                    self._sync_onvif_state(canonical)
+                    break
+
+        self._onvif_unsub = async_track_state_change_event(
+            self.hass,
+            found,
+            _on_onvif_state_change,
+        )
+        self.last_raw["onvif_mirror"] = {
+            "status": "listening",
+            "sources": {
+                key: list(value)
+                for key, value in self.onvif_sources.items()
+                if value
+            },
+        }
 
     async def async_stop_listener(self) -> None:
         """Stop the long-lived local event stream task."""
