@@ -35,6 +35,11 @@ async def async_get_config_entry_diagnostics(
         "event_attach_sid": event_coordinator.attach_sid,
         "event_stream_status": event_coordinator.stream_status,
         "event_discovered_codes": sorted(event_coordinator.discovered_event_codes),
+        "event_onvif_sources": {
+            key: list(value)
+            for key, value in event_coordinator.onvif_sources.items()
+            if value
+        },
         "event_supported_codes": sorted(event_coordinator.supported_codes),
         "event_unsupported_codes": sorted(event_coordinator.unsupported_codes),
         "event_last_raw": async_redact_data(
