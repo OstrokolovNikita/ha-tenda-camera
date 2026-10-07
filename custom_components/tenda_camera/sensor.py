@@ -90,9 +90,11 @@ class TendaEventStatusSensor(TendaCameraEntity, SensorEntity):
         """Return a concise event transport status."""
         if not self._event_coordinator.last_update_success:
             return "error"
+        if self._event_coordinator.stream_status == "connected":
+            return "streaming"
         if self._event_coordinator.attach_sid is not None:
             return "attached"
-        return "polling"
+        return self._event_coordinator.stream_status or "polling"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -107,6 +109,10 @@ class TendaEventStatusSensor(TendaCameraEntity, SensorEntity):
 
         return {
             "attach_sid": self._event_coordinator.attach_sid,
+            "stream_status": self._event_coordinator.stream_status,
+            "discovered_codes": sorted(
+                self._event_coordinator.discovered_event_codes
+            ),
             "supported_codes": sorted(
                 self._event_coordinator.supported_codes
             ),
