@@ -14,6 +14,7 @@ class TendaCameraCard extends HTMLElement {
     this._fullscreenCameraEntity = null;
     this._fullscreenCameraGeneration = 0;
     this._fullscreenAspectRatio = null;
+    this._fullscreenFillTimers = [];
     this._render();
   }
 
@@ -58,6 +59,7 @@ class TendaCameraCard extends HTMLElement {
 
   disconnectedCallback() {
     this._stopPtzTimerOnly();
+    this._clearFullscreenFillTimers();
     this._nativeCameraGeneration += 1;
     this._fullscreenCameraGeneration += 1;
   }
@@ -126,13 +128,175 @@ class TendaCameraCard extends HTMLElement {
     );
   }
 
+  _fullscreenLandscapeSize() {
+    const viewportWidth = Math.max(window.innerWidth, 1);
+    const viewportHeight = Math.max(window.innerHeight, 1);
+
+    if (viewportWidth >= viewportHeight) {
+      return {
+        width: viewportWidth,
+        height: viewportHeight,
+        rotate: false,
+      };
+    }
+
+    // Even when Android auto-rotate is disabled, render the fullscreen layer
+    // in a landscape coordinate system and rotate it ourselves.
+    return {
+      width: viewportHeight,
+      height: viewportWidth,
+      rotate: true,
+    };
+  }
+
   _getFullscreenAspectRatio() {
-    const width = Math.max(window.innerWidth, window.innerHeight);
-    const height = Math.min(window.innerWidth, window.innerHeight);
-    return `${Math.max(width, 1)}:${Math.max(height, 1)}`;
+    const { width, height } = this._fullscreenLandscapeSize();
+    return `${width}:${height}`;
+  }
+
+  _applyFullscreenGeometry() {
+    const stage = this.shadowRoot?.querySelector(".fullscreen-stage");
+    if (!stage) return;
+
+    const { width, height, rotate } = this._fullscreenLandscapeSize();
+    stage.style.width = `${width}px`;
+    stage.style.height = `${height}px`;
+    stage.classList.toggle("force-rotate", rotate);
+  }
+
+  _clearFullscreenFillTimers() {
+    for (const timer of this._fullscreenFillTimers) {
+      window.clearTimeout(timer);
+    }
+    this._fullscreenFillTimers = [];
+  }
+
+  async _forceFullscreenCardFill(card) {
+    if (!card) return;
+
+    try {
+      await card.updateComplete;
+
+      card.style.position = "absolute";
+      card.style.inset = "0";
+      card.style.width = "100%";
+      card.style.height = "100%";
+      card.style.margin = "0";
+      card.style.borderRadius = "0";
+      card.style.overflow = "hidden";
+      card.style.background = "#000";
+
+      const cardRoot = card.shadowRoot;
+      const haCard = cardRoot?.querySelector("ha-card");
+      if (haCard) {
+        haCard.style.position = "absolute";
+        haCard.style.inset = "0";
+        haCard.style.width = "100%";
+        haCard.style.height = "100%";
+        haCard.style.minHeight = "0";
+        haCard.style.margin = "0";
+        haCard.style.borderRadius = "0";
+        haCard.style.overflow = "hidden";
+        haCard.style.background = "#000";
+      }
+
+      const imageContainer = cardRoot?.querySelector(".image-container");
+      if (imageContainer) {
+        imageContainer.style.position = "absolute";
+        imageContainer.style.inset = "0";
+        imageContainer.style.width = "100%";
+        imageContainer.style.height = "100%";
+        imageContainer.style.minHeight = "0";
+        imageContainer.style.overflow = "hidden";
+        imageContainer.style.background = "#000";
+      }
+
+      const huiImage = cardRoot?.querySelector("hui-image");
+      if (!huiImage) return;
+
+      huiImage.style.position = "absolute";
+      huiImage.style.inset = "0";
+      huiImage.style.width = "100%";
+      huiImage.style.height = "100%";
+      huiImage.style.minHeight = "0";
+      huiImage.style.background = "#000";
+      await huiImage.updateComplete;
+
+      const imageRoot = huiImage.shadowRoot;
+      const container = imageRoot?.querySelector(".container");
+      if (container) {
+        container.style.position = "absolute";
+        container.style.inset = "0";
+        container.style.width = "100%";
+        container.style.height = "100%";
+        container.style.paddingBottom = "0";
+        container.style.background = "#000";
+        container.style.overflow = "hidden";
+      }
+
+      const stream = imageRoot?.querySelector("ha-camera-stream");
+      if (!stream) return;
+
+      stream.style.position = "absolute";
+      stream.style.inset = "0";
+      stream.style.width = "100%";
+      stream.style.height = "100%";
+      stream.fitMode = "cover";
+      stream.aspectRatio = undefined;
+      await stream.updateComplete;
+
+      const streamRoot = stream.shadowRoot;
+      for (const child of streamRoot?.querySelectorAll(
+        "img, ha-hls-player, ha-web-rtc-player"
+      ) || []) {
+        child.style.position = "absolute";
+        child.style.inset = "0";
+        child.style.width = "100%";
+        child.style.height = "100%";
+        child.style.margin = "0";
+
+        if ("fitMode" in child) {
+          child.fitMode = "cover";
+        }
+        if ("aspectRatio" in child) {
+          child.aspectRatio = undefined;
+        }
+
+        if (child.updateComplete) {
+          await child.updateComplete;
+        }
+
+        const video = child.shadowRoot?.querySelector("video");
+        if (video) {
+          video.style.position = "absolute";
+          video.style.inset = "0";
+          video.style.width = "100%";
+          video.style.height = "100%";
+          video.style.maxWidth = "none";
+          video.style.maxHeight = "none";
+          video.style.objectFit = "cover";
+          video.style.aspectRatio = "auto";
+          video.style.margin = "0";
+        }
+      }
+    } catch (err) {
+      console.debug("Tenda Camera: fullscreen fill adjustment skipped", err);
+    }
+  }
+
+  _scheduleFullscreenFill(card) {
+    this._clearFullscreenFillTimers();
+    for (const delay of [0, 120, 450, 1200]) {
+      const timer = window.setTimeout(
+        () => this._forceFullscreenCardFill(card),
+        delay
+      );
+      this._fullscreenFillTimers.push(timer);
+    }
   }
 
   _resetFullscreenCameraCard() {
+    this._clearFullscreenFillTimers();
     this._fullscreenCameraGeneration += 1;
     this._fullscreenCameraCard = null;
     this._fullscreenCameraEntity = null;
@@ -194,6 +358,7 @@ class TendaCameraCard extends HTMLElement {
       this._fullscreenCameraCard = card;
       this._fullscreenCameraEntity = state.entity_id;
       this._fullscreenAspectRatio = aspectRatio;
+      this._scheduleFullscreenFill(card);
     } catch (err) {
       console.error("Tenda Camera: failed to mount fullscreen live card", err);
       host.textContent = "Не удалось открыть основной поток";
@@ -209,6 +374,7 @@ class TendaCameraCard extends HTMLElement {
     if (!overlay || !state) return;
 
     overlay.classList.add("show");
+    this._applyFullscreenGeometry();
 
     // Enter real browser/WebView fullscreen first. Android WebView only allows
     // orientation locking reliably while an element is fullscreen.
@@ -225,9 +391,11 @@ class TendaCameraCard extends HTMLElement {
         await screen.orientation.lock("landscape");
       }
     } catch (_err) {
-      // Some WebViews do not expose orientation locking. The overlay still
-      // fills the viewport and will adapt when the user rotates the phone.
+      // We do not depend on Android auto-rotate. If orientation lock is not
+      // allowed by the WebView, CSS rotates the landscape stage itself.
     }
+
+    this._applyFullscreenGeometry();
 
     // Let the viewport settle after the fullscreen/orientation transition,
     // then create the high-quality main-stream card for the final ratio.
@@ -237,6 +405,7 @@ class TendaCameraCard extends HTMLElement {
       )
     );
 
+    this._applyFullscreenGeometry();
     this._resetFullscreenCameraCard();
     await this._ensureFullscreenCameraCard(state);
   }
@@ -329,6 +498,19 @@ class TendaCameraCard extends HTMLElement {
         .fullscreen-overlay.show {
           display: block;
         }
+        .fullscreen-stage {
+          position: absolute;
+          left: 50%;
+          top: 50%;
+          transform: translate(-50%, -50%);
+          transform-origin: center center;
+          overflow: hidden;
+          background: #000;
+          touch-action: none;
+        }
+        .fullscreen-stage.force-rotate {
+          transform: translate(-50%, -50%) rotate(90deg);
+        }
         .fullscreen-camera-host {
           position: absolute;
           inset: 0;
@@ -365,10 +547,10 @@ class TendaCameraCard extends HTMLElement {
         .fullscreen-close ha-icon {
           --mdc-icon-size: 28px;
         }
-        .fullscreen-overlay .joystick {
-          left: max(18px, env(safe-area-inset-left));
+        .fullscreen-stage .joystick {
+          left: 18px;
           right: auto;
-          bottom: max(18px, env(safe-area-inset-bottom));
+          bottom: 18px;
           z-index: 100002;
         }
         .events {
@@ -535,28 +717,31 @@ class TendaCameraCard extends HTMLElement {
         </div>
 
         <div class="fullscreen-overlay">
-          <div class="fullscreen-camera-host"></div>
+          <div class="fullscreen-stage">
+            <div class="fullscreen-camera-host"></div>
+
+            <div class="joystick">
+              <button class="ptz up" data-dir="up" title="Вверх">
+                <ha-icon icon="mdi:chevron-up"></ha-icon>
+              </button>
+              <button class="ptz left" data-dir="left" title="Влево">
+                <ha-icon icon="mdi:chevron-left"></ha-icon>
+              </button>
+              <button class="ptz stop" data-stop title="Стоп">
+                <ha-icon icon="mdi:stop"></ha-icon>
+              </button>
+              <button class="ptz right" data-dir="right" title="Вправо">
+                <ha-icon icon="mdi:chevron-right"></ha-icon>
+              </button>
+              <button class="ptz down" data-dir="down" title="Вниз">
+                <ha-icon icon="mdi:chevron-down"></ha-icon>
+              </button>
+            </div>
+          </div>
+
           <button class="fullscreen-close" data-fullscreen-close title="Закрыть">
             <ha-icon icon="mdi:close"></ha-icon>
           </button>
-
-          <div class="joystick">
-            <button class="ptz up" data-dir="up" title="Вверх">
-              <ha-icon icon="mdi:chevron-up"></ha-icon>
-            </button>
-            <button class="ptz left" data-dir="left" title="Влево">
-              <ha-icon icon="mdi:chevron-left"></ha-icon>
-            </button>
-            <button class="ptz stop" data-stop title="Стоп">
-              <ha-icon icon="mdi:stop"></ha-icon>
-            </button>
-            <button class="ptz right" data-dir="right" title="Вправо">
-              <ha-icon icon="mdi:chevron-right"></ha-icon>
-            </button>
-            <button class="ptz down" data-dir="down" title="Вниз">
-              <ha-icon icon="mdi:chevron-down"></ha-icon>
-            </button>
-          </div>
         </div>
       </ha-card>
     `;
@@ -608,6 +793,7 @@ class TendaCameraCard extends HTMLElement {
       if (!state) return;
 
       window.setTimeout(() => {
+        this._applyFullscreenGeometry();
         this._resetFullscreenCameraCard();
         this._ensureFullscreenCameraCard(state);
       }, 120);
