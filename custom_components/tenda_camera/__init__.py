@@ -33,7 +33,7 @@ PLATFORMS: list[Platform] = [
 
 
 FRONTEND_URL = "/tenda-camera"
-FRONTEND_MODULE = f"{FRONTEND_URL}/tenda-camera-card.js?v=0.5.0"
+FRONTEND_MODULE = f"{FRONTEND_URL}/tenda-camera-card.js?v=0.6.0"
 
 
 async def async_setup(
