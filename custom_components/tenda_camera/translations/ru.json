@@ -47,6 +47,15 @@
       },
       "rtsp_enabled": {
         "name": "RTSP включен"
+      },
+      "motion_detected": {
+        "name": "Движение обнаружено"
+      },
+      "person_detected": {
+        "name": "Человек обнаружен"
+      },
+      "tamper_detected": {
+        "name": "Закрытие камеры обнаружено"
       }
     },
     "sensor": {
@@ -82,6 +91,18 @@
       },
       "reauthenticate": {
         "name": "Переподключить RPC2"
+      },
+      "ptz_up": {
+        "name": "Повернуть вверх"
+      },
+      "ptz_down": {
+        "name": "Повернуть вниз"
+      },
+      "ptz_left": {
+        "name": "Повернуть влево"
+      },
+      "ptz_right": {
+        "name": "Повернуть вправо"
       }
     }
   }
