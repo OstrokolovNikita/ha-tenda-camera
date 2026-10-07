@@ -3,13 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST, Platform
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import TendaRpcClient, TendaRpcConnectionError, TendaRpcResponseError
-from .const import CONF_PORT, CONF_VERIFY_SSL, DEFAULT_PORT, DEFAULT_VERIFY_SSL
+from .api import TendaRpcClient, TendaRpcError
 from .coordinator import TendaCoordinator
 
 PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
@@ -34,15 +33,15 @@ async def async_setup_entry(
     session = async_get_clientsession(hass)
     client = TendaRpcClient(
         session=session,
-        host=entry.data[CONF_HOST],
-        port=entry.data.get(CONF_PORT, DEFAULT_PORT),
-        verify_ssl=entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL),
+        **dict(entry.data),
     )
 
     try:
         device_info = await client.async_probe()
-    except (TendaRpcConnectionError, TendaRpcResponseError) as err:
-        raise ConfigEntryNotReady(f"Unable to initialize Tenda camera: {err}") from err
+    except TendaRpcError as err:
+        raise ConfigEntryNotReady(
+            f"Unable to initialize Tenda camera: {err}"
+        ) from err
 
     coordinator = TendaCoordinator(hass, client, device_info)
     await coordinator.async_config_entry_first_refresh()
