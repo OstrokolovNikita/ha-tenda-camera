@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Connect to Tenda camera",
-        "description": "Connect directly to the camera's local RPC2 API.",
+        "description": "Connect directly to the camera's local RPC2 API.\n\nLast connection diagnostic: **{diagnostic}**",
         "data": {
           "host": "Host / IP address",
           "port": "HTTPS port",
@@ -16,8 +16,8 @@
       }
     },
     "error": {
-      "cannot_connect": "Cannot connect to the camera.",
-      "rpc_error": "The camera responded, but its RPC2 API could not be validated."
+      "cannot_connect": "Transport connection to the camera failed. The exact reason is shown above.",
+      "rpc_error": "The camera answered, but RPC2 returned an error. The exact reason is shown above."
     },
     "abort": {
       "already_configured": "This camera is already configured."
@@ -25,29 +25,15 @@
   },
   "entity": {
     "binary_sensor": {
-      "motion_detection_enabled": {
-        "name": "Motion detection enabled"
-      },
-      "human_detection_filter_enabled": {
-        "name": "Human detection filter enabled"
-      },
-      "human_tracking_enabled": {
-        "name": "Human tracking enabled"
-      },
-      "blind_detection_enabled": {
-        "name": "Blind detection enabled"
-      },
-      "onvif_enabled": {
-        "name": "ONVIF enabled"
-      },
-      "rtsp_enabled": {
-        "name": "RTSP enabled"
-      }
+      "motion_detection_enabled": {"name": "Motion detection enabled"},
+      "human_detection_filter_enabled": {"name": "Human detection filter enabled"},
+      "human_tracking_enabled": {"name": "Human tracking enabled"},
+      "blind_detection_enabled": {"name": "Blind detection enabled"},
+      "onvif_enabled": {"name": "ONVIF enabled"},
+      "rtsp_enabled": {"name": "RTSP enabled"}
     },
     "sensor": {
-      "record_mode": {
-        "name": "Record mode"
-      }
+      "record_mode": {"name": "Record mode"}
     }
   }
 }
