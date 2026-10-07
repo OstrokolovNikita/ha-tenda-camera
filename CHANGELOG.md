@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.4.0
+
+- Add live motion/person/tamper event probing over local RPC2.
+- Add `Person detected` as a real event binary sensor when supported by RP7 firmware.
+- Poll event state separately every two seconds without increasing the slower settings poll.
+- Add Up/Down/Left/Right PTZ buttons.
+- PTZ buttons delegate to Home Assistant's existing ONVIF camera configured for the same IP.
+- Document the difference between detection enable switches and live detection events.
+
 ## v0.3.0
 
 - Fix unavailable RP7 motion/human state by normalizing config table shapes.
