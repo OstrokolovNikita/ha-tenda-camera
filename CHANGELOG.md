@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.6.1
+
+- Fix startup failure introduced in v0.6.0 on Home Assistant installations where the internal camera helper import is unavailable.
+- Decode RTSP still frames directly through the camera stream object instead of importing an internal helper.
+- Treat optional Encode/event probing as non-fatal so unsupported firmware behavior cannot take the whole Tenda entry down.
+
 ## v0.6.0
 
 - Fix the camera entity fallback path so H.265 streams no longer expose a broken browser live mode.
