@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.6.4
+
+- Remove the stream-name badge from the bundled Tenda Camera card.
+- Add a fullscreen button directly over the preview.
+- Fullscreen mode always opens the Tenda main stream for maximum configured quality, while the normal card can keep using the lighter stream.
+- Keep PTZ controls available in fullscreen mode.
+- Use the browser Fullscreen API when available, with a full-viewport overlay fallback.
+
 ## v0.6.3
 
 - Rebuild the custom Tenda Camera card around Home Assistant's own native `picture-entity` live card instead of embedding `ha-camera-stream` directly inside the integration shadow DOM.
