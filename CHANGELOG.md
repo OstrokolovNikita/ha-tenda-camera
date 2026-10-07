@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.6.5
+
+- Remove the custom stream-name badge from the dashboard card.
+- Mirror the PTZ cross to the left side of the camera image.
+- Move the fullscreen control to the bottom-right corner like a normal video control.
+- Fullscreen still opens the main Tenda stream, not the lighter dashboard stream.
+- Keep PTZ available in fullscreen.
+- Move live event badges away from the PTZ cluster.
+
 ## v0.6.4
 
 - Remove the stream-name badge from the bundled Tenda Camera card.
