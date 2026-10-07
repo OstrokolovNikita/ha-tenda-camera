@@ -113,6 +113,11 @@ class TendaEventStatusSensor(TendaCameraEntity, SensorEntity):
             "discovered_codes": sorted(
                 self._event_coordinator.discovered_event_codes
             ),
+            "onvif_sources": {
+                key: list(value)
+                for key, value in self._event_coordinator.onvif_sources.items()
+                if value
+            },
             "supported_codes": sorted(
                 self._event_coordinator.supported_codes
             ),
