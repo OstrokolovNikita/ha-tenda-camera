@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.5.0
+
+- Fix live motion/person/tamper sensors by attaching the RPC2 event manager before reading event indexes.
+- Re-attach the event manager automatically after RP7 authentication/session renewal.
+- Include raw event polling details in Home Assistant diagnostics for model-specific troubleshooting.
+- Add a bundled `Tenda Camera` Lovelace card loaded automatically by the integration.
+- Put a touch PTZ cross directly over the camera image.
+- Use press-and-hold PTZ movement and Stop on release for much smoother control.
+- Add Motion, Human detection and Human tracking controls to the camera card.
+- Add live Motion and Person indicators on the camera card.
+- Reduce the movement of the standalone one-shot PTZ buttons.
+- Add integration services used by the camera card for PTZ and feature control.
+
 ## v0.4.0
 
 - Add live motion/person/tamper event probing over local RPC2.
