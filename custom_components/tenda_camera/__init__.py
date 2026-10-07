@@ -11,7 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import config_validation as cv, entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from .api import TendaRpcClient, TendaRpcError
@@ -19,6 +19,8 @@ from .const import DOMAIN
 from .coordinator import TendaCoordinator
 from .event_coordinator import TendaEventCoordinator
 from .services import async_register_services
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 PLATFORMS: list[Platform] = [
     Platform.CAMERA,
