@@ -33,6 +33,8 @@ async def async_get_config_entry_diagnostics(
         "coordinator_data": coordinator.data,
         "event_data": event_coordinator.data,
         "event_attach_sid": event_coordinator.attach_sid,
+        "event_stream_status": event_coordinator.stream_status,
+        "event_discovered_codes": sorted(event_coordinator.discovered_event_codes),
         "event_supported_codes": sorted(event_coordinator.supported_codes),
         "event_unsupported_codes": sorted(event_coordinator.unsupported_codes),
         "event_last_raw": async_redact_data(
