@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from typing import Any
+
 from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -10,6 +13,13 @@ from .entity import TendaCameraEntity
 RECORD_MODE = SensorEntityDescription(
     key="record_mode",
     translation_key="record_mode",
+    entity_category=EntityCategory.DIAGNOSTIC,
+)
+
+EVENT_STATUS = SensorEntityDescription(
+    key="event_status",
+    translation_key="event_status",
+    icon="mdi:motion-sensor",
     entity_category=EntityCategory.DIAGNOSTIC,
 )
 
@@ -26,7 +36,12 @@ async def async_setup_entry(
                 entry,
                 entry.runtime_data.coordinator,
                 RECORD_MODE,
-            )
+            ),
+            TendaEventStatusSensor(
+                entry,
+                entry.runtime_data.coordinator,
+                EVENT_STATUS,
+            ),
         ]
     )
 
@@ -50,3 +65,54 @@ class TendaRecordModeSensor(TendaCameraEntity, SensorEntity):
             return None
         mode = first.get("Mode")
         return None if mode is None else str(mode)
+
+
+class TendaEventStatusSensor(TendaCameraEntity, SensorEntity):
+    """Expose enough event transport detail to diagnose model-specific codes."""
+
+    def __init__(self, entry, coordinator, description) -> None:
+        super().__init__(entry, coordinator)
+        self.entity_description = description
+        self._event_coordinator = entry.runtime_data.event_coordinator
+        self._attr_unique_id = f"{self._device_unique_id}_{description.key}"
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to event polling updates."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self._event_coordinator.async_add_listener(
+                self.async_write_ha_state
+            )
+        )
+
+    @property
+    def native_value(self) -> str:
+        """Return a concise event transport status."""
+        if not self._event_coordinator.last_update_success:
+            return "error"
+        if self._event_coordinator.attach_sid is not None:
+            return "attached"
+        return "polling"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return short raw RPC2 event details for troubleshooting."""
+        raw: dict[str, str] = {}
+        for key, value in self._event_coordinator.last_raw.items():
+            raw[key] = json.dumps(
+                value,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )[:700]
+
+        return {
+            "attach_sid": self._event_coordinator.attach_sid,
+            "supported_codes": sorted(
+                self._event_coordinator.supported_codes
+            ),
+            "unsupported_codes": sorted(
+                self._event_coordinator.unsupported_codes
+            ),
+            "values": dict(self._event_coordinator.data or {}),
+            "raw": raw,
+        }
