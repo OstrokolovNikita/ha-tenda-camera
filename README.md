@@ -2,17 +2,17 @@
 
 Local Home Assistant integration for Tenda IP cameras.
 
-> **Status: early alpha / read-only probe.**
+> **Status: alpha. Local RP7 V2.0 authentication and read-only state are working.**
 > The first tested device is **Tenda RP7 V2.0** with firmware **V21.7.18.99**.
 
 The integration talks directly to the camera on the LAN using the camera's
 local JSON RPC endpoint (`/RPC2`). It does not require TDSEE cloud access.
 
-## Current v0.1 scope
+## Current v0.2.1 scope
 
-The first milestone is deliberately read-only. It validates the local RPC API
-and exposes the camera's configuration state in Home Assistant without changing
-camera settings.
+The current milestone is deliberately read-only. RP7 V2.0 local authentication,
+device discovery and configuration reads are working in Home Assistant. Camera
+settings are not changed yet.
 
 Currently read:
 
@@ -72,3 +72,13 @@ it can be submitted for inclusion in the default HACS repository list.
 ## Disclaimer
 
 This is an independent community project and is not affiliated with Tenda.
+
+
+## Release model
+
+Development commits are validated by HACS and hassfest. Published versions use
+GitHub Releases (for example `v0.2.1`) so HACS can display semantic versions
+instead of raw commit hashes and can notify users about normal updates.
+
+During rapid alpha development HACS may cache repository metadata for a while;
+manual repository refresh can reveal a release sooner than the periodic refresh.
