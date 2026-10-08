@@ -90,10 +90,6 @@ class TendaEventStatusSensor(TendaCameraEntity, SensorEntity):
         """Return a concise event transport status."""
         if not self._event_coordinator.last_update_success:
             return "error"
-        if self._event_coordinator.stream_status == "streaming":
-            return "streaming"
-        if self._event_coordinator.attach_sid is not None:
-            return "attached"
         return self._event_coordinator.stream_status or "polling"
 
     @property
@@ -123,6 +119,8 @@ class TendaEventStatusSensor(TendaCameraEntity, SensorEntity):
             "motion_config_readback": motion_readback,
             "attach_sid": self._event_coordinator.attach_sid,
             "stream_status": self._event_coordinator.stream_status,
+            "cgi_status": self._event_coordinator.cgi_status,
+            "subscribe_status": self._event_coordinator.subscribe_status,
             "discovered_codes": sorted(
                 self._event_coordinator.discovered_event_codes
             ),
