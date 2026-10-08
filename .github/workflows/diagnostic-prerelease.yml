@@ -1,0 +1,59 @@
+name: Publish TEST prerelease (RP7 diagnostics)
+
+on:
+  push:
+    branches:
+      - diagnostics/rp7-event-transport
+    paths:
+      - "custom_components/tenda_camera/manifest.json"
+      - ".github/workflows/diagnostic-prerelease.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  prerelease:
+    if: github.ref == 'refs/heads/diagnostics/rp7-event-transport'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate test-only version and Python syntax
+        id: version
+        shell: bash
+        run: |
+          python -m compileall -q custom_components/tenda_camera
+          VERSION="$(python -c 'import json; print(json.load(open("custom_components/tenda_camera/manifest.json"))["version"])')"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+b[0-9]+$ ]]; then
+            echo "::error::TEST release version must end with bN, got: $VERSION"
+            exit 1
+          fi
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Retire rejected stable v0.8.2
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v0.8.2 >/dev/null 2>&1; then
+            gh release edit v0.8.2 \
+              --prerelease \
+              --title "v0.8.2 — WITHDRAWN / TEST ONLY"
+          fi
+
+      - name: Publish diagnostic build as GitHub prerelease (HACS beta)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "$TAG already exists. No existing tag is moved."
+            exit 0
+          fi
+          gh release create "$TAG" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "$TAG — TEST ONLY (RP7 transport diagnostic)" \
+            --notes "Experimental read-only probe for local ports 9002/8000 and anonymous WebSocket messages. Based on v0.8.1; does not fix motion/person sensors yet. DO NOT use as stable. Stable v0.8.1 remains unchanged."
