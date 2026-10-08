@@ -291,6 +291,66 @@ class TendaRpcClient:
 
         return data
 
+    async def async_open_cgi_event_stream(self) -> aiohttp.ClientResponse:
+        """Open the camera-style Dahua eventManager CGI stream.
+
+        RP7 V2.0 exposes a Dahua-like RPC/config surface. Cameras in this family
+        normally push motion/AI events over one persistent multipart response:
+        /cgi-bin/eventManager.cgi?action=attach&codes=[All].
+
+        Use Digest auth because CGI endpoints are often protected separately
+        from the web UI RPC session cookie.
+        """
+        if self._username is None or self._password is None:
+            raise TendaRpcAuthError("username/password are required")
+
+        headers = {
+            "Accept": "multipart/x-mixed-replace,text/plain,*/*",
+            "Referer": f"{self.origin}/",
+            "Connection": "keep-alive",
+            "Cache-Control": "no-cache",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/154.0.0.0 Safari/537.36"
+            ),
+        }
+
+        digest = aiohttp.DigestAuthMiddleware(
+            self._username,
+            self._password,
+        )
+
+        try:
+            response = await self._session.get(
+                f"{self.base_url}/cgi-bin/eventManager.cgi",
+                params={
+                    "action": "attach",
+                    "codes": "[All]",
+                },
+                headers=headers,
+                ssl=self._ssl,
+                timeout=aiohttp.ClientTimeout(
+                    total=None,
+                    connect=10,
+                    sock_connect=10,
+                    sock_read=None,
+                ),
+                middlewares=(digest,),
+            )
+        except (aiohttp.ClientError, asyncio.TimeoutError, ssl.SSLError) as err:
+            raise TendaRpcConnectionError(self._connection_detail(err)) from err
+
+        if response.status != 200:
+            body = await response.text()
+            response.release()
+            raise TendaRpcConnectionError(
+                f"eventManager.cgi HTTP {response.status} "
+                f"{response.reason}; body={body[:300]!r}"
+            )
+
+        return response
+
     async def async_open_event_stream(self) -> aiohttp.ClientResponse:
         """Open the Dahua-style SubscribeNotify event stream if RP7 exposes it."""
         session_id = self.session_cookie_value
