@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.7.0
+
+- Fix the core RP7 event bug: an HTTP 200 from the experimental SubscribeNotify endpoint was previously treated as a healthy push stream even when no event had ever arrived. That incorrectly disabled RPC2 event-index polling and left motion/person sensors permanently off.
+- Only mark the push transport as working after a real `client.notifyEventStream` message is received.
+- Keep RPC2 event-index polling active unless a specific sensor has a proven push/ONVIF source.
+- Poll RP7 event indexes every second so short motion/person states are less likely to be missed.
+- Probe multiple Dahua/Tenda OEM aliases for motion and person events: `VideoMotion`, `VideoMotionInfo`, `MDResult`, `MoveDetection`, `SmartMotionHuman`, `HumanDetection`, `HumanTrait`, plus tamper aliases.
+- Do not permanently blacklist an event code after one RPC refusal; retry it on later cycles.
+- Add camera readback for `MotionDetect.Enable`, `HumanDetectFliter`, `HumanTrack` and sensitivity to the RPC2 event-status diagnostics, proving whether the switches are actually enabled on the camera.
+
 ## v0.6.9
 
 - Fit fullscreen video by screen height instead of screen width.
