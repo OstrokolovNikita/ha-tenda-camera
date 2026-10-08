@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.8.3b3 — TEST / PRE-RELEASE (not stable)
+
+- Disabled WebSocket client's proactive Ping heartbeat for the passive port 9002 experiment. The camera may not reply to client Ping even if the handshake succeeds.
+- Removed the repeatedly cancelled 10-second WebSocket receive waits. One passive observation now lasts up to 90 seconds without forced intermediate receive cancellation.
+- Expose sanitized `ws_error_class` and diagnostic probe mode to distinguish transport errors from deliberately ended observation windows.
+- Stable v0.8.1 is unchanged. Still diagnostic only: motion/person events have not been proven.
+
 ## v0.8.3b2 — TEST / PRE-RELEASE (not stable)
 
 - Improve diagnostic WSS port 9002 telemetry: record connection count, sanitized close status/code, frame type and time until disconnect; never store credentials or message payload.
