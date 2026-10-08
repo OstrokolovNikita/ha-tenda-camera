@@ -120,6 +120,7 @@ class TendaEventStatusSensor(TendaCameraEntity, SensorEntity):
             "attach_sid": self._event_coordinator.attach_sid,
             "stream_status": self._event_coordinator.stream_status,
             "transport_probe": dict(self._event_coordinator.transport_probe.details),
+            "event_trace_status": self._event_coordinator.trace.status,
             "cgi_status": self._event_coordinator.cgi_status,
             "subscribe_status": self._event_coordinator.subscribe_status,
             "discovered_codes": sorted(
