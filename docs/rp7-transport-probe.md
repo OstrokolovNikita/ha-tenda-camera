@@ -14,19 +14,21 @@ It does not change the card, streams, PTZ, fullscreen or motion switches.
 - No session cookies, passwords, authentication headers, event subscription
   commands or RTSP requests are sent by the probe.
 - Never records complete message contents, URLs with secrets or binary dumps.
+- Reports WSS close code, close frame type and connection lifespan (no close reason text).
+- Reduces unsupported RPC event polling to 10-second intervals and explicitly lists ambiguous replies in `indeterminate_codes`.
   For incoming WS frames it keeps message count, kind, length, safe JSON key
   names and a few allowlisted method/event labels.
 
 ## Installation and version channels via HACS
 
 - **Stable:** `v0.8.1`, normal GitHub release, source from `main`.
-- **Test:** `v0.8.3b1`, GitHub **Pre-release**, source from this diagnostic branch.
+- **Test:** `v0.8.3b2`, GitHub **Pre-release**, source from this diagnostic branch.
 - Rejected `v0.8.2` is marked **Pre-release**, not the stable update.
 - There is no file copying and no ZIP installation. All versions are published
   through GitHub Releases for HACS.
 - To opt into experimental builds, enable the (usually disabled) HACS switch
   entity for Tenda Camera that includes pre-release updates. Download/update
-  the offered `v0.8.3b1` using HACS. HACS does not automatically install the
+  the offered `v0.8.3b2` using HACS. HACS does not automatically install the
   test build just because its release exists.
 - After Home Assistant restarts, open Developer Tools → States →
   `sensor.rp7v2_0_rpc2_event_status` and copy only the **`transport_probe`**
