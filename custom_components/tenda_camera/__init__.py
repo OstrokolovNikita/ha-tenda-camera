@@ -180,6 +180,15 @@ async def async_setup_entry(
     await coordinator.async_config_entry_first_refresh()
 
     event_coordinator = TendaEventCoordinator(hass, client, device_info, entry.entry_id)
+    motion = coordinator.data.get("motion") or {}
+    event_coordinator.trace.record(
+        "camera_motion_config",
+        enabled=motion.get("Enable") if isinstance(motion, dict) else None,
+        human_enabled=(
+            motion.get("HumanDetectFliter") if isinstance(motion, dict) else None
+        ),
+        sensitivity=motion.get("Level") if isinstance(motion, dict) else None,
+    )
     await event_coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = TendaRuntimeData(
