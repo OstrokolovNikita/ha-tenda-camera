@@ -90,7 +90,7 @@ class TendaEventStatusSensor(TendaCameraEntity, SensorEntity):
         """Return a concise event transport status."""
         if not self._event_coordinator.last_update_success:
             return "error"
-        if self._event_coordinator.stream_status == "connected":
+        if self._event_coordinator.stream_status == "streaming":
             return "streaming"
         if self._event_coordinator.attach_sid is not None:
             return "attached"
@@ -107,7 +107,20 @@ class TendaEventStatusSensor(TendaCameraEntity, SensorEntity):
                 separators=(",", ":"),
             )[:700]
 
+        motion = self.coordinator.data.get("motion")
+        motion_readback = (
+            {
+                "Enable": motion.get("Enable"),
+                "HumanDetectFliter": motion.get("HumanDetectFliter"),
+                "HumanTrack": motion.get("HumanTrack"),
+                "Level": motion.get("Level"),
+            }
+            if isinstance(motion, dict)
+            else None
+        )
+
         return {
+            "motion_config_readback": motion_readback,
             "attach_sid": self._event_coordinator.attach_sid,
             "stream_status": self._event_coordinator.stream_status,
             "discovered_codes": sorted(
