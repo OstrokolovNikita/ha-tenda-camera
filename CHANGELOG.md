@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.8.1
+
+- Fix fullscreen camera layout regression on desktop and mobile.
+- Remove the fullscreen `picture-entity` wrapper whose late 16:9 padding re-render could push the live image into only half of the viewport.
+- Render Home Assistant's native `ha-camera-stream` directly inside the height-fitted fullscreen media surface.
+- Keep the existing landscape lock/fallback rotation, height-fit behavior, PTZ overlay and pinch zoom unchanged.
+- No event-transport changes from v0.8.0.
+
 ## v0.8.0
 
 - Add the camera-style Dahua/Tenda multipart event stream:
