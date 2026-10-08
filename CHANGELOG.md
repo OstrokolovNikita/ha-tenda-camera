@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.8.3b2 — TEST / PRE-RELEASE (not stable)
+
+- Improve diagnostic WSS port 9002 telemetry: record connection count, sanitized close status/code, frame type and time until disconnect; never store credentials or message payload.
+- Reduce unproductive `getEventIndexes` probing from every 1 second to every 10 seconds in the **test branch only**, relieving load on HTTPS 443.
+- Correct diagnostic classification: RPC `{"result":0}` without `params.indexes` is **ambiguous**, not proof that a code is supported or currently inactive; expose `indeterminate_codes`.
+- Does not yet provide confirmed live motion/person events. No modifications to working v0.8.1 video, PTZ, UI, switches.
+
 ## v0.8.3b1 — TEST / PRE-RELEASE (not stable)
 
 - Based strictly on stable v0.8.1 (commit `29bc130c`); does **not** reincorporate rejected v0.8.2 fullscreen modifications.
