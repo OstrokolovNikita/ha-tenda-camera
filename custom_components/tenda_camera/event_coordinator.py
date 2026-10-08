@@ -25,7 +25,7 @@ from .transport_probe import TendaTransportProbe
 
 _LOGGER = logging.getLogger(__name__)
 
-EVENT_SCAN_INTERVAL = timedelta(seconds=1)
+EVENT_SCAN_INTERVAL = timedelta(seconds=10)
 PULSE_HOLD_SECONDS = 3.0
 
 POLL_CODE_MAP: dict[str, str] = {
@@ -254,6 +254,7 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
 
         self.supported_codes: set[str] = set()
         self.unsupported_codes: set[str] = set()
+        self.indeterminate_codes: set[str] = set()
         self.discovered_event_codes: set[str] = set()
 
         self._attached = False
@@ -662,6 +663,8 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
             )
         except TendaRpcResponseError as err:
             self.unsupported_codes.add(code)
+            self.indeterminate_codes.discard(code)
+            self.supported_codes.discard(code)
             self.last_raw[code] = {
                 "error": str(err),
                 "raw": err.raw,
@@ -669,16 +672,25 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
             return None
 
         self.unsupported_codes.discard(code)
-        self.supported_codes.add(code)
-        self.last_raw[code] = data
+        params = data.get("params")
+        indexes = params.get("indexes") if isinstance(params, dict) else None
 
-        params = data.get("params") or {}
-        indexes = params.get("indexes")
-        if indexes is None:
-            indexes = []
+        # RP7 can return {"result": 0} without any indexes. Such an
+        # acknowledgement is *not* evidence of supported event polling and
+        # must not be interpreted as a confirmed inactive alarm.
         if not isinstance(indexes, list):
+            self.supported_codes.discard(code)
+            self.indeterminate_codes.add(code)
+            self.last_raw[code] = {
+                "result": data.get("result"),
+                "indexes_present": False,
+                "status": "ambiguous_rpc_response",
+            }
             return None
 
+        self.indeterminate_codes.discard(code)
+        self.supported_codes.add(code)
+        self.last_raw[code] = data
         active = bool(indexes)
         if active:
             self.discovered_event_codes.add(code)
