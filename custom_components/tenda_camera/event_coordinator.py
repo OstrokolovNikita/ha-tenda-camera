@@ -21,6 +21,7 @@ from .api import (
     TendaRpcResponseError,
 )
 from .const import DOMAIN
+from .transport_probe import TendaTransportProbe
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -283,6 +284,14 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
             "SmartMotionHuman": False,
             "VideoBlind": False,
         }
+        self.transport_probe = TendaTransportProbe(
+            client, self._notify_transport_probe_update
+        )
+
+    @callback
+    def _notify_transport_probe_update(self) -> None:
+        """Update the existing diagnostic entity without altering event states."""
+        self.async_set_updated_data(dict(self._live_states))
 
     def _refresh_stream_status(self) -> None:
         if self.cgi_status == "streaming":
@@ -310,6 +319,7 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
 
     async def async_start_listener(self) -> None:
         """Start every non-destructive local event transport."""
+        self.transport_probe.start(self.hass)
         self._async_start_onvif_mirror()
 
         if self._cgi_task is None or self._cgi_task.done():
@@ -423,6 +433,7 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         }
 
     async def async_stop_listener(self) -> None:
+        await self.transport_probe.stop()
         for task_name in ("_cgi_task", "_subscribe_task"):
             task = getattr(self, task_name)
             if task is None:
