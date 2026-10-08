@@ -34,7 +34,7 @@ PLATFORMS: list[Platform] = [
 
 
 FRONTEND_URL = "/tenda-camera"
-FRONTEND_MODULE = f"{FRONTEND_URL}/tenda-camera-card.js?v=0.8.0"
+FRONTEND_MODULE = f"{FRONTEND_URL}/tenda-camera-card.js?v=0.8.1"
 FRONTEND_RESOURCE_PREFIX = f"{FRONTEND_URL}/tenda-camera-card.js"
 
 
