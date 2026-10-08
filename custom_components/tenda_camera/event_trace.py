@@ -55,6 +55,8 @@ class TendaEventTrace:
         self._task: asyncio.Task[None] | None = None
         self._recent: deque[dict[str, Any]] = deque(maxlen=100)
         self.dropped = 0
+        self.recorded_since_restart = 0
+        self.last_record_utc: str | None = None
         self.write_error: str | None = None
         self.record("trace_initialized", mode="read_only", version="0.8.3b4")
 
@@ -69,10 +71,23 @@ class TendaEventTrace:
             },
         }
         self._recent.append(row)
+        self.recorded_since_restart += 1
+        self.last_record_utc = row["at_utc"]
         try:
             self._queue.put_nowait(row)
         except asyncio.QueueFull:
             self.dropped += 1
+
+    @property
+    def status(self) -> dict[str, Any]:
+        return {
+            "recorded_since_restart": self.recorded_since_restart,
+            "last_record_utc": self.last_record_utc,
+            "dropped": self.dropped,
+            "write_error": self.write_error,
+            "stored_private": True,
+            "download_via": "HA integration diagnostics",
+        }
 
     def start(self, hass: Any) -> None:
         if self._task is None or self._task.done():
