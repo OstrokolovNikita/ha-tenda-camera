@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.8.0
+
+- Add the camera-style Dahua/Tenda multipart event stream:
+  `/cgi-bin/eventManager.cgi?action=attach&codes=[All]`.
+- Authenticate that CGI stream independently with HTTP Digest credentials.
+- Parse live `Code=...;action=...;index=...;data=...` motion/AI event frames and feed them directly to Home Assistant binary sensors.
+- Keep the older SubscribeNotify experiment and RPC2 event-index polling only as parallel fallbacks; one transport no longer masks the others.
+- Split diagnostics into `cgi_status` and `subscribe_status` so a silent/unsupported endpoint is immediately visible.
+- Preserve ONVIF event mirroring as an additional fallback.
+- Rename the Russian diagnostic entity from “События RPC2” to “Канал событий”.
+- No camera-card or video changes in this release.
+
 ## v0.7.0
 
 - Fix the core RP7 event bug: an HTTP 200 from the experimental SubscribeNotify endpoint was previously treated as a healthy push stream even when no event had ever arrived. That incorrectly disabled RPC2 event-index polling and left motion/person sensors permanently off.
