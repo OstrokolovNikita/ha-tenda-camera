@@ -21,6 +21,7 @@ from .api import (
     TendaRpcResponseError,
 )
 from .const import DOMAIN
+from .event_trace import TendaEventTrace
 from .transport_probe import TendaTransportProbe
 
 _LOGGER = logging.getLogger(__name__)
@@ -242,6 +243,7 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         hass: HomeAssistant,
         client: TendaRpcClient,
         device_info: dict[str, Any],
+        entry_id: str,
     ) -> None:
         super().__init__(
             hass,
@@ -251,6 +253,11 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         )
         self.client = client
         self.device_info = device_info
+        self.trace = TendaEventTrace(hass, entry_id)
+        self._last_probe_details: dict[str, Any] = {}
+        self._last_onvif_known: dict[str, bool] = {}
+        self._last_rpc_snapshot: dict[str, bool | None] | None = None
+        self._last_poll_error: str | None = None
 
         self.supported_codes: set[str] = set()
         self.unsupported_codes: set[str] = set()
@@ -291,7 +298,23 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
 
     @callback
     def _notify_transport_probe_update(self) -> None:
-        """Update the existing diagnostic entity without altering event states."""
+        """Record only changes in transport metadata, not noisy idle polls."""
+        latest = self.transport_probe.details
+        fields = (
+            "tcp_9002", "tcp_8000", "ws_root_9002",
+            "ws_connection_count", "ws_messages", "ws_close_code",
+            "ws_close_frame_type", "ws_error_class", "ws_lifetime_ms",
+        )
+        delta = {
+            key: latest.get(key)
+            for key in fields
+            if self._last_probe_details.get(key) != latest.get(key)
+        }
+        if delta:
+            if "ws_messages" in delta:
+                delta["ws_last_message"] = latest.get("ws_last_message")
+            self.trace.record("transport_change", **delta)
+        self._last_probe_details = dict(latest)
         self.async_set_updated_data(dict(self._live_states))
 
     def _refresh_stream_status(self) -> None:
@@ -317,9 +340,12 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         self._attached = True
         self._attached_generation = self.client.auth_generation
         self.last_raw["eventManager.attach"] = data
+        self.trace.record("rpc_attach", valid_sid=self.attach_sid not in (-1, None))
 
     async def async_start_listener(self) -> None:
         """Start every non-destructive local event transport."""
+        self.trace.start(self.hass)
+        self.trace.record("listener_start", transports=["wss_9002", "cgi", "subscribe", "onvif", "rpc"])
         self.transport_probe.start(self.hass)
         self._async_start_onvif_mirror()
 
@@ -356,9 +382,16 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         if not known:
             return
 
+        detected = STATE_ON in known
+        if self._last_onvif_known.get(canonical) != detected:
+            self.trace.record(
+                "onvif_state", event_type=canonical, active=detected,
+                configured_entities=len(entity_ids),
+            )
+            self._last_onvif_known[canonical] = detected
         self._set_event_state(
             canonical,
-            STATE_ON in known,
+            detected,
             pulse=False,
         )
 
@@ -400,11 +433,13 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
                 found.append(entity_entry.entity_id)
 
         if not found:
+            self.trace.record("onvif_mirror", status="no_sources")
             self.last_raw["onvif_mirror"] = {
                 "status": "no matching ONVIF event entities",
             }
             return
 
+        self.trace.record("onvif_mirror", status="listening", source_count=len(found))
         for canonical in self.onvif_sources:
             self._sync_onvif_state(canonical)
 
@@ -457,6 +492,8 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         self.cgi_status = "stopped"
         self.subscribe_status = "stopped"
         self.stream_status = "stopped"
+        self.trace.record("listener_stop")
+        await self.trace.stop()
 
     async def _async_clear_pulse(self, canonical: str) -> None:
         try:
@@ -465,6 +502,7 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
             return
 
         self._live_states[canonical] = False
+        self.trace.record("pulse_ended", event_type=canonical)
         self.async_set_updated_data(dict(self._live_states))
 
     def _set_event_state(
@@ -474,7 +512,10 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         *,
         pulse: bool,
     ) -> None:
+        previous_state = self._live_states.get(canonical)
         self._live_states[canonical] = active
+        if previous_state != active:
+            self.trace.record("binary_sensor_change", event_type=canonical, active=active, pulse=pulse)
 
         previous = self._pulse_clear_tasks.pop(canonical, None)
         if previous is not None:
@@ -506,6 +547,13 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
             return
 
         self.discovered_event_codes.add(code)
+        safe_code = code if re.fullmatch(r"[A-Za-z0-9_.:-]{1,48}", code) else "other"
+        safe_action = action if re.fullmatch(r"[A-Za-z0-9_.:-]{1,32}", action) else "other"
+        self.trace.record(
+            "local_push_event", transport=transport,
+            code=safe_code, action=safe_action,
+            human_classification=_contains_human(data),
+        )
         self.last_raw[f"{transport}:{code}"] = event
         self.last_raw["last_event_transport"] = transport
 
@@ -536,6 +584,7 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
 
         self.subscribe_status = "streaming"
         self._refresh_stream_status()
+        self.trace.record("subscribe_notify", event_count=len(event_list))
         self.last_raw["last_notify"] = message
 
         for event in event_list:
@@ -552,6 +601,7 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
                 response = await self.client.async_open_cgi_event_stream()
                 self.cgi_status = "open_no_events"
                 self._refresh_stream_status()
+                self.trace.record("cgi_status", status="open_no_events")
                 self.last_raw["eventManager.cgi"] = {
                     "status": response.status,
                     "content_type": response.headers.get("Content-Type"),
@@ -569,6 +619,7 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
                     for event in events:
                         self.cgi_status = "streaming"
                         self._refresh_stream_status()
+                        self.trace.record("cgi_status", status="streaming")
                         self._handle_event(event, transport="cgi")
 
                 if self.cgi_status != "streaming":
@@ -584,6 +635,8 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
                 TendaRpcConnectionError,
                 OSError,
             ) as err:
+                if self.cgi_status != "error":
+                    self.trace.record("cgi_status", status="error", error_class=type(err).__name__)
                 self.cgi_status = "error"
                 self._refresh_stream_status()
                 self.last_raw["eventManager.cgi"] = {
@@ -616,6 +669,7 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
                 response = await self.client.async_open_event_stream()
                 self.subscribe_status = "open_no_events"
                 self._refresh_stream_status()
+                self.trace.record("subscribe_status", status="open_no_events")
                 retry_delay = 2.0
                 buffer = ""
 
@@ -642,6 +696,8 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
                 TendaRpcResponseError,
                 OSError,
             ) as err:
+                if self.subscribe_status != "error":
+                    self.trace.record("subscribe_status", status="error", error_class=type(err).__name__)
                 self.subscribe_status = "error"
                 self._refresh_stream_status()
                 self.last_raw["SubscribeNotify"] = {
@@ -721,6 +777,19 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
                 polled_by_code[code] = await self._async_event_active(code)
 
             self.last_raw["event_index_values"] = polled_by_code
+            if polled_by_code != self._last_rpc_snapshot:
+                self.trace.record(
+                    "rpc_index_snapshot",
+                    active_codes=[
+                        code for code, state in polled_by_code.items() if state is True
+                    ],
+                    inactive_count=sum(value is False for value in polled_by_code.values()),
+                    indeterminate_count=sum(value is None for value in polled_by_code.values()),
+                )
+                self._last_rpc_snapshot = dict(polled_by_code)
+            if self._last_poll_error is not None:
+                self.trace.record("rpc_poll_recovered")
+                self._last_poll_error = None
 
             collapsed: dict[str, bool | None] = {
                 canonical: None for canonical in EVENT_CODES
@@ -751,5 +820,9 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
             TendaRpcResponseError,
         ) as err:
             self._attached = False
+            error_class = type(err).__name__
+            if self._last_poll_error != error_class:
+                self.trace.record("rpc_poll_error", error_class=error_class)
+                self._last_poll_error = error_class
             self.last_raw["poll_error"] = {"error": str(err)}
             return dict(self._live_states)
