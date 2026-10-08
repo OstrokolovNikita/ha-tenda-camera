@@ -8,7 +8,7 @@ Local Home Assistant integration for Tenda IP cameras.
 The integration talks directly to the camera on the LAN using the camera's
 local JSON RPC endpoint (`/RPC2`). It does not require TDSEE cloud access.
 
-## Current v0.7.0 scope
+## Current v0.8.0 scope
 
 The current milestone provides local RP7 V2.0 authentication, device discovery,
 two RTSP camera entities and writable configuration switches. All traffic stays
@@ -242,3 +242,27 @@ polling even when no `client.notifyEventStream` message had ever arrived.
 v0.7.0 only trusts the push transport after a real event notification and
 continues RPC2 snapshot polling otherwise. It also probes the common OEM
 aliases for motion/person events once per second.
+
+
+### v0.8.0 event transport
+
+RP7 V2.0 uses a Dahua-like RPC/config surface. The integration now tries the
+camera-family event transport used for live motion alarms directly:
+
+`/cgi-bin/eventManager.cgi?action=attach&codes=[All]`
+
+The connection is long-lived, uses Digest authentication and parses multipart
+event frames such as `Code=VideoMotion;action=Start;...`. These events update
+the Home Assistant motion/person/tamper binary sensors immediately.
+
+Fallbacks remain active in parallel:
+
+1. camera `eventManager.cgi` multipart stream;
+2. OEM `SubscribeNotify.cgi` JSON notification experiment;
+3. matching ONVIF binary sensors;
+4. RPC2 `eventManager.getEventIndexes` polling.
+
+The diagnostic entity **Event channel / Канал событий** exposes which transport
+is actually alive and the last raw event codes seen on this firmware. A simple
+HTTP 200 response is not treated as proof that a push channel works; only a real
+event frame is.
