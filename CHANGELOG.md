@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.8.3b4 — TEST / PRE-RELEASE (not stable)
+
+- Add a **persistent, size-limited, sanitized event journal** under Home Assistant's private storage, retained across HA restarts.
+- Timestamp passive WSS connection changes, received frame metadata, 9002/8000 probe cycles, ONVIF motion-state transitions, RPC event-index shape changes, CGI and SubscribeNotify status, and confirmed local push event codes.
+- Download the journal from the Tenda Camera device integration using **Download diagnostics**: the `event_trace.records` JSON array. Includes timestamps in UTC; no raw frames, passwords, cookies, session IDs or camera IP are written to the journal.
+- Report journal health through `event_trace_status` on the existing “Канал событий” sensor.
+- Files rotate at 512 KiB each (maximum ~1 MiB total); diagnostics exports at most the latest 800 observations.
+- **Does not** yet claim human/motion detection works; TDSEE cloud alarm history may have a separate event path. Only passive local observation is implemented.
+- Stable v0.8.1 video/PTZ/card/switches remain unchanged.
+
 ## v0.8.3b3 — TEST / PRE-RELEASE (not stable)
 
 - Disabled WebSocket client's proactive Ping heartbeat for the passive port 9002 experiment. The camera may not reply to client Ping even if the handshake succeeds.
