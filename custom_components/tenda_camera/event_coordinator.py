@@ -314,6 +314,13 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
             if "ws_messages" in delta:
                 delta["ws_last_message"] = latest.get("ws_last_message")
             self.trace.record("transport_change", **delta)
+        # Record each quiet probe cycle as proof that observation is alive.
+        if latest.get("last_probe_utc") != self._last_probe_details.get("last_probe_utc"):
+            self.trace.record(
+                "probe_cycle",
+                connection=latest.get("ws_root_9002"),
+                total_messages=latest.get("ws_messages"),
+            )
         self._last_probe_details = dict(latest)
         self.async_set_updated_data(dict(self._live_states))
 
