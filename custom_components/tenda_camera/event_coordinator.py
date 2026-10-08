@@ -23,8 +23,25 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-EVENT_SCAN_INTERVAL = timedelta(seconds=2)
+# RP7 event indexes are only snapshots. Poll often enough that a person walking
+# through the frame is not missed, while keeping the request rate reasonable.
+EVENT_SCAN_INTERVAL = timedelta(seconds=1)
 PULSE_HOLD_SECONDS = 3.0
+
+# Tenda V2 firmware is Dahua-RPC-like, but OEM builds do not always expose the
+# same event code names. Poll the small set of motion/person aliases observed
+# across that family and collapse them to three stable HA sensors.
+POLL_CODE_MAP: dict[str, str] = {
+    "VideoMotion": "VideoMotion",
+    "VideoMotionInfo": "VideoMotion",
+    "MDResult": "VideoMotion",
+    "MoveDetection": "VideoMotion",
+    "SmartMotionHuman": "SmartMotionHuman",
+    "HumanDetection": "SmartMotionHuman",
+    "HumanTrait": "SmartMotionHuman",
+    "VideoBlind": "VideoBlind",
+    "TamperingDetection": "VideoBlind",
+}
 
 EVENT_CODES: tuple[str, ...] = (
     "VideoMotion",
@@ -34,6 +51,9 @@ EVENT_CODES: tuple[str, ...] = (
 
 MOTION_CODES = {
     "VideoMotion",
+    "VideoMotionInfo",
+    "MDResult",
+    "MoveDetection",
     "MotionDetection",
     "MotionDetect",
 }
@@ -41,6 +61,7 @@ PERSON_CODES = {
     "SmartMotionHuman",
     "HumanDetection",
     "HumanDetect",
+    "HumanTrait",
     "Human",
 }
 TAMPER_CODES = {
@@ -52,7 +73,7 @@ TAMPER_CODES = {
 
 
 def _extract_json_objects(buffer: str) -> tuple[list[dict[str, Any]], str]:
-    """Extract complete JSON objects embedded in SubscribeNotify HTML/script."""
+    """Extract complete JSON objects embedded in a notification stream."""
     objects: list[dict[str, Any]] = []
     start: int | None = None
     depth = 0
@@ -101,7 +122,6 @@ def _extract_json_objects(buffer: str) -> tuple[list[dict[str, Any]], str]:
     else:
         tail = buffer[last_consumed:]
 
-    # Prevent an HTML response without JSON from growing forever.
     if len(tail) > 65536:
         tail = tail[-8192:]
     return objects, tail
@@ -132,7 +152,7 @@ def _contains_human(value: Any) -> bool:
 
 
 class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
-    """Track short-lived RP7 events from RPC2/SubscribeNotify."""
+    """Track RP7 live events from every local transport we can prove."""
 
     def __init__(
         self,
@@ -148,22 +168,31 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         )
         self.client = client
         self.device_info = device_info
+
         self.supported_codes: set[str] = set()
         self.unsupported_codes: set[str] = set()
         self.discovered_event_codes: set[str] = set()
+
         self._attached = False
         self._attached_generation = -1
         self._attach_supported = True
         self.attach_sid: Any | None = None
+
         self.last_raw: dict[str, Any] = {}
         self.stream_status = "stopped"
         self._event_task: asyncio.Task[None] | None = None
+
+        # A HTTP 200 from an OEM SubscribeNotify path is NOT enough to call the
+        # stream healthy. Only a real client.notifyEventStream message proves it.
+        self._push_canonicals: set[str] = set()
+
         self._onvif_unsub: Callable[[], None] | None = None
         self.onvif_sources: dict[str, list[str]] = {
             "VideoMotion": [],
             "SmartMotionHuman": [],
             "VideoBlind": [],
         }
+
         self._pulse_clear_tasks: dict[str, asyncio.Task[None]] = {}
         self._live_states: dict[str, bool] = {
             "VideoMotion": False,
@@ -172,7 +201,7 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         }
 
     async def async_attach(self) -> None:
-        """Activate the RPC2 event manager before subscribing to notifications."""
+        """Activate the RPC2 event manager for the current login."""
         data = await self.client.async_rpc(
             "eventManager.attach",
             {"codes": ["All"]},
@@ -196,7 +225,6 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         )
 
     def _classify_onvif_entity(self, label: str) -> str | None:
-        """Map a matching ONVIF event entity to our canonical sensor."""
         value = label.lower()
 
         if any(word in value for word in ("human", "person", "pedestrian")):
@@ -208,7 +236,6 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         return None
 
     def _sync_onvif_state(self, canonical: str) -> None:
-        """Mirror matching ONVIF event state into this integration."""
         entity_ids = self.onvif_sources.get(canonical) or []
         states = [self.hass.states.get(entity_id) for entity_id in entity_ids]
         known = [
@@ -226,7 +253,6 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         )
 
     def _async_start_onvif_mirror(self) -> None:
-        """Mirror ONVIF event entities configured for the same camera."""
         if self._onvif_unsub is not None:
             return
 
@@ -298,7 +324,6 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         }
 
     async def async_stop_listener(self) -> None:
-        """Stop the long-lived local event stream task."""
         if self._event_task is not None:
             self._event_task.cancel()
             try:
@@ -361,18 +386,20 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         active = action_lower != "stop"
         pulse = action_lower == "pulse"
 
+        canonicals: set[str] = set()
         if code in MOTION_CODES:
-            self._set_event_state("VideoMotion", active, pulse=pulse)
-
+            canonicals.add("VideoMotion")
         if code in PERSON_CODES or _contains_human(data):
-            self._set_event_state("SmartMotionHuman", active, pulse=pulse)
-
+            canonicals.add("SmartMotionHuman")
         if code in TAMPER_CODES:
-            self._set_event_state("VideoBlind", active, pulse=pulse)
+            canonicals.add("VideoBlind")
+
+        for canonical in canonicals:
+            self._push_canonicals.add(canonical)
+            self._set_event_state(canonical, active, pulse=pulse)
 
     def _handle_notification(self, message: dict[str, Any]) -> None:
-        method = message.get("method")
-        if method != "client.notifyEventStream":
+        if message.get("method") != "client.notifyEventStream":
             return
 
         params = message.get("params") or {}
@@ -380,13 +407,15 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         if not isinstance(event_list, list):
             return
 
+        # This is the point where the push transport is actually proven.
+        self.stream_status = "streaming"
         self.last_raw["last_notify"] = message
         for event in event_list:
             if isinstance(event, dict):
                 self._handle_event(event)
 
     async def _async_event_listener(self) -> None:
-        """Consume Dahua-style local event notifications without cloud access."""
+        """Probe the OEM push stream without letting it mask RPC2 polling."""
         retry_delay = 2.0
 
         while True:
@@ -399,7 +428,7 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
                     await self.async_attach()
 
                 response = await self.client.async_open_event_stream()
-                self.stream_status = "connected"
+                self.stream_status = "open_no_events"
                 retry_delay = 2.0
                 buffer = ""
 
@@ -411,7 +440,10 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
                     for message in messages:
                         self._handle_notification(message)
 
-                self.stream_status = "disconnected"
+                if self.stream_status != "streaming":
+                    self.stream_status = "closed_no_events"
+                else:
+                    self.stream_status = "disconnected"
             except asyncio.CancelledError:
                 raise
             except (
@@ -431,9 +463,12 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
             retry_delay = min(retry_delay * 2, 30.0)
 
     async def _async_event_active(self, code: str) -> bool | None:
-        if code in self.unsupported_codes:
-            return None
+        """Read one RPC2 event index snapshot.
 
+        Do not permanently blacklist a code after one refusal. OEM cameras can
+        transiently refuse event queries under load, and a one-shot blacklist
+        makes a valid sensor stay dead until Home Assistant restarts.
+        """
         try:
             data = await self.client.async_rpc(
                 "eventManager.getEventIndexes",
@@ -447,7 +482,10 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
             }
             return None
 
+        self.unsupported_codes.discard(code)
+        self.supported_codes.add(code)
         self.last_raw[code] = data
+
         params = data.get("params") or {}
         indexes = params.get("indexes")
         if indexes is None:
@@ -455,11 +493,13 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         if not isinstance(indexes, list):
             return None
 
-        self.supported_codes.add(code)
-        return bool(indexes)
+        active = bool(indexes)
+        if active:
+            self.discovered_event_codes.add(code)
+        return active
 
     async def _async_update_data(self) -> dict[str, bool | None]:
-        """Keep a polling fallback while event subscription is being verified."""
+        """Poll event indexes and merge them with proven push/ONVIF events."""
         try:
             if (
                 self._attach_supported
@@ -478,24 +518,36 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
                         "raw": err.raw,
                     }
 
-            polled = {
-                code: await self._async_event_active(code)
-                for code in EVENT_CODES
+            polled_by_code: dict[str, bool | None] = {}
+            for code in POLL_CODE_MAP:
+                polled_by_code[code] = await self._async_event_active(code)
+
+            self.last_raw["event_index_values"] = polled_by_code
+
+            # Collapse aliases. A true from any alias wins. False is only used
+            # when at least one alias answered and no alias is active.
+            collapsed: dict[str, bool | None] = {
+                canonical: None for canonical in EVENT_CODES
             }
+            for code, canonical in POLL_CODE_MAP.items():
+                value = polled_by_code.get(code)
+                if value is True:
+                    collapsed[canonical] = True
+                elif value is False and collapsed[canonical] is None:
+                    collapsed[canonical] = False
 
-            self.last_raw["event_index_values"] = polled
+            for canonical, value in collapsed.items():
+                if value is None:
+                    continue
 
-            # Never return None for normal event entities just because one
-            # experimental transport is unavailable. Keep the last known live
-            # value, and only use event indexes as a fallback when there is no
-            # live SubscribeNotify stream and no matching ONVIF source.
-            if self.stream_status != "connected":
-                for code, value in polled.items():
-                    if value is None:
-                        continue
-                    if self.onvif_sources.get(code):
-                        continue
-                    self._live_states[code] = value
+                # A real push event or a matching ONVIF entity is authoritative
+                # for that canonical sensor. Otherwise RPC2 snapshots drive it.
+                if canonical in self._push_canonicals:
+                    continue
+                if self.onvif_sources.get(canonical):
+                    continue
+
+                self._live_states[canonical] = value
 
             return dict(self._live_states)
         except (
