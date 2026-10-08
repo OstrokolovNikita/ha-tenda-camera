@@ -8,7 +8,7 @@ Local Home Assistant integration for Tenda IP cameras.
 The integration talks directly to the camera on the LAN using the camera's
 local JSON RPC endpoint (`/RPC2`). It does not require TDSEE cloud access.
 
-## Current v0.6.3 scope
+## Current v0.7.0 scope
 
 The current milestone provides local RP7 V2.0 authentication, device discovery,
 two RTSP camera entities and writable configuration switches. All traffic stays
@@ -225,3 +225,20 @@ Live Tenda events are now collected from multiple local sources:
 
 This is specifically meant to make RP7 V2.0 motion detection useful even when
 the proprietary notification transport is firmware-specific.
+
+
+### v0.7.0 event detection fix
+
+The Motion / Human detection switches are camera configuration values, not
+event states. Their Home Assistant states are read back from the RP7
+`MotionDetect` config table, so an enabled switch means the camera itself
+reported `Enable=true` / `HumanDetectFliter=true`.
+
+Earlier versions could still leave the live event sensors permanently off:
+the experimental `SubscribeNotify.cgi` probe treated any HTTP 200 response
+as a valid event stream, and that suppressed `eventManager.getEventIndexes`
+polling even when no `client.notifyEventStream` message had ever arrived.
+
+v0.7.0 only trusts the push transport after a real event notification and
+continues RPC2 snapshot polling otherwise. It also probes the common OEM
+aliases for motion/person events once per second.
