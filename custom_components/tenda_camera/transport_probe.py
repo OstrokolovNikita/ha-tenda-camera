@@ -81,6 +81,8 @@ class TendaTransportProbe:
             "ws_connected_utc": None,
             "ws_close_code": None,
             "ws_close_frame_type": None,
+            "ws_error_class": None,
+            "ws_probe_mode": "passive_no_heartbeat",
             "ws_lifetime_ms": None,
             "ws_last_message": None,
             "ws_last_message_utc": None,
@@ -142,7 +144,8 @@ class TendaTransportProbe:
                         session.ws_connect(
                             url,
                             ssl=self.client.ssl_context if scheme == "wss" else None,
-                            heartbeat=20,
+                            heartbeat=None,
+                            autoping=True,
                         ),
                         timeout=5,
                     )
@@ -153,17 +156,23 @@ class TendaTransportProbe:
                         ws_connected_utc=_timestamp(),
                         ws_close_code=None,
                         ws_close_frame_type=None,
+                        ws_error_class=None,
                         ws_lifetime_ms=None,
                     )
                     async with websocket:
                         until = asyncio.get_running_loop().time() + 90
-                        while asyncio.get_running_loop().time() < until:
+                        while True:
+                            remaining = until - asyncio.get_running_loop().time()
+                            if remaining <= 0:
+                                break
                             try:
-                                message = await asyncio.wait_for(
-                                    websocket.receive(), timeout=10
-                                )
+                                # No repeated wait_for(10) cancellations: aiohttp may
+                                # interpret a cancelled receive as abnormal closure.
+                                # Timeout here happens only once, at the end of the
+                                # complete passive observation window.
+                                message = await websocket.receive(timeout=remaining)
                             except asyncio.TimeoutError:
-                                continue
+                                break
 
                             if message.type in (
                                 aiohttp.WSMsgType.TEXT,
@@ -188,6 +197,11 @@ class TendaTransportProbe:
                                     ws_root_9002=f"closed_{scheme}",
                                     ws_close_code=code,
                                     ws_close_frame_type=message.type.name,
+                                    ws_error_class=(
+                                        type(websocket.exception()).__name__
+                                        if websocket.exception() is not None
+                                        else None
+                                    ),
                                     ws_lifetime_ms=round(
                                         (asyncio.get_running_loop().time() - connected_at) * 1000
                                     ),
@@ -195,7 +209,9 @@ class TendaTransportProbe:
                                 return
                     self._set(
                         ws_root_9002=f"observed_90s_{scheme}",
-                        ws_close_code=websocket.close_code,
+                        # We intentionally end observation at 90 seconds;
+                        # any client-side timeout close code is not a camera error.
+                        ws_close_code=None,
                         ws_lifetime_ms=round(
                             (asyncio.get_running_loop().time() - connected_at) * 1000
                         ),
