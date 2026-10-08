@@ -24,3 +24,10 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
+
+  rp7_trace_tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test sanitized event journal
+        run: python -m unittest discover -s tests -p 'test_event_trace.py' -v
