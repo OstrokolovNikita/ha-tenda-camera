@@ -123,55 +123,61 @@ class TendaTransportProbe:
     async def _observe_websocket(self) -> None:
         # A failed handshake to "/" is only a result for this one URL.
         failures: list[str] = []
-        for scheme in ("ws", "wss"):
-            url = f"{scheme}://{self.client.host}:9002/"
-            websocket: aiohttp.ClientWebSocketResponse | None = None
-            try:
-                websocket = await asyncio.wait_for(
-                    self.client.session.ws_connect(
-                        url,
-                        ssl=self.client.ssl_context if scheme == "wss" else None,
-                        heartbeat=20,
-                    ),
-                    timeout=5,
-                )
-                self._set(ws_root_9002=f"connected_{scheme}")
-                async with websocket:
-                    until = asyncio.get_running_loop().time() + 90
-                    while asyncio.get_running_loop().time() < until:
-                        try:
-                            message = await asyncio.wait_for(
-                                websocket.receive(), timeout=10
-                            )
-                        except asyncio.TimeoutError:
-                            continue
+        # Deliberately use a separate cookie-less session: do not reuse the
+        # authenticated RPC2 session or accidentally send its cookies.
+        async with aiohttp.ClientSession(
+            cookie_jar=aiohttp.DummyCookieJar(),
+            trust_env=False,
+        ) as session:
+            for scheme in ("ws", "wss"):
+                url = f"{scheme}://{self.client.host}:9002/"
+                websocket: aiohttp.ClientWebSocketResponse | None = None
+                try:
+                    websocket = await asyncio.wait_for(
+                        session.ws_connect(
+                            url,
+                            ssl=self.client.ssl_context if scheme == "wss" else None,
+                            heartbeat=20,
+                        ),
+                        timeout=5,
+                    )
+                    self._set(ws_root_9002=f"connected_{scheme}")
+                    async with websocket:
+                        until = asyncio.get_running_loop().time() + 90
+                        while asyncio.get_running_loop().time() < until:
+                            try:
+                                message = await asyncio.wait_for(
+                                    websocket.receive(), timeout=10
+                                )
+                            except asyncio.TimeoutError:
+                                continue
 
-                        if message.type in (
-                            aiohttp.WSMsgType.TEXT,
-                            aiohttp.WSMsgType.BINARY,
-                        ):
-                            self._set(
-                                ws_messages=self.details["ws_messages"] + 1,
-                                ws_last_message=_safe_ws_summary(message),
-                                ws_last_message_utc=_timestamp(),
-                            )
-                        elif message.type in (
-                            aiohttp.WSMsgType.CLOSED,
-                            aiohttp.WSMsgType.CLOSE,
-                            aiohttp.WSMsgType.CLOSING,
-                            aiohttp.WSMsgType.ERROR,
-                        ):
-                            self._set(ws_root_9002=f"closed_{scheme}")
-                            return
-                self._set(ws_root_9002=f"observed_90s_{scheme}")
-                return
-            except asyncio.CancelledError:
-                raise
-            except (aiohttp.ClientError, OSError, asyncio.TimeoutError) as err:
-                failures.append(f"{scheme}:{_error_label(err)}")
-            finally:
-                if websocket is not None and not websocket.closed:
-                    await websocket.close()
+                            if message.type in (
+                                aiohttp.WSMsgType.TEXT,
+                                aiohttp.WSMsgType.BINARY,
+                            ):
+                                self._set(
+                                    ws_messages=self.details["ws_messages"] + 1,
+                                    ws_last_message=_safe_ws_summary(message),
+                                    ws_last_message_utc=_timestamp(),
+                                )
+                            elif message.type in (
+                                aiohttp.WSMsgType.CLOSED,
+                                aiohttp.WSMsgType.CLOSE,
+                                aiohttp.WSMsgType.CLOSING,
+                                aiohttp.WSMsgType.ERROR,
+                            ):
+                                self._set(ws_root_9002=f"closed_{scheme}")
+                                return
+                    self._set(ws_root_9002=f"observed_90s_{scheme}")
+                    return
+                except asyncio.CancelledError:
+                    raise
+                except (aiohttp.ClientError, OSError, asyncio.TimeoutError) as err:
+                    failures.append(f"{scheme}:{_error_label(err)}")
+                finally:
+                    if websocket is not None and not websocket.closed:
+                        await websocket.close()
 
         self._set(ws_root_9002=" | ".join(failures))
 
