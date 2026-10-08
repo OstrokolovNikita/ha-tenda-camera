@@ -44,6 +44,7 @@ async def async_get_config_entry_diagnostics(
             if value
         },
         "event_supported_codes": sorted(event_coordinator.supported_codes),
+        "event_indeterminate_codes": sorted(event_coordinator.indeterminate_codes),
         "event_unsupported_codes": sorted(event_coordinator.unsupported_codes),
         "event_last_raw": async_redact_data(
             event_coordinator.last_raw,
