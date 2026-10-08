@@ -5,6 +5,7 @@ from collections.abc import Callable
 from datetime import timedelta
 import json
 import logging
+import re
 from typing import Any
 
 from homeassistant.const import CONF_HOST, STATE_OFF, STATE_ON
@@ -23,14 +24,9 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-# RP7 event indexes are only snapshots. Poll often enough that a person walking
-# through the frame is not missed, while keeping the request rate reasonable.
 EVENT_SCAN_INTERVAL = timedelta(seconds=1)
 PULSE_HOLD_SECONDS = 3.0
 
-# Tenda V2 firmware is Dahua-RPC-like, but OEM builds do not always expose the
-# same event code names. Poll the small set of motion/person aliases observed
-# across that family and collapse them to three stable HA sensors.
 POLL_CODE_MAP: dict[str, str] = {
     "VideoMotion": "VideoMotion",
     "VideoMotionInfo": "VideoMotion",
@@ -73,7 +69,7 @@ TAMPER_CODES = {
 
 
 def _extract_json_objects(buffer: str) -> tuple[list[dict[str, Any]], str]:
-    """Extract complete JSON objects embedded in a notification stream."""
+    """Extract complete JSON objects embedded in SubscribeNotify HTML/script."""
     objects: list[dict[str, Any]] = []
     start: int | None = None
     depth = 0
@@ -127,6 +123,92 @@ def _extract_json_objects(buffer: str) -> tuple[list[dict[str, Any]], str]:
     return objects, tail
 
 
+def _parse_cgi_event(payload: str) -> dict[str, Any] | None:
+    """Parse one Dahua-style CGI event payload."""
+    code_match = re.search(r"(?:^|\n)Code=([^;\r\n]+)", payload)
+    if code_match is None:
+        return None
+
+    action_match = re.search(r";action=([^;\r\n]+)", payload)
+    index_match = re.search(r";index=([^;\r\n]+)", payload)
+
+    data: Any = None
+    data_marker = ";data="
+    data_pos = payload.find(data_marker)
+    if data_pos >= 0:
+        raw_data = payload[data_pos + len(data_marker) :].strip()
+        try:
+            data = json.loads(raw_data)
+        except ValueError:
+            data = raw_data
+
+    event: dict[str, Any] = {
+        "Code": code_match.group(1).strip(),
+        "Action": (
+            action_match.group(1).strip()
+            if action_match is not None
+            else "Pulse"
+        ),
+    }
+    if index_match is not None:
+        event["Index"] = index_match.group(1).strip()
+    if data is not None:
+        event["Data"] = data
+    return event
+
+
+def _extract_cgi_events(buffer: str) -> tuple[list[dict[str, Any]], str]:
+    """Extract complete Code=... blocks from a multipart CGI event stream."""
+    events: list[dict[str, Any]] = []
+    cursor = 0
+
+    while True:
+        start_match = re.search(r"(?m)^Code=", buffer[cursor:])
+        if start_match is None:
+            # Keep a small suffix in case "Code=" is split across chunks.
+            return events, buffer[-32:] if len(buffer) > 32 else buffer
+
+        start = cursor + start_match.start()
+
+        next_code_match = re.search(r"(?m)^Code=", buffer[start + 5 :])
+        next_code = (
+            start + 5 + next_code_match.start()
+            if next_code_match is not None
+            else None
+        )
+
+        boundary_match = re.search(
+            r"\r?\n--[^\r\n]+(?:\r?\n|$)",
+            buffer[start:],
+        )
+        boundary = (
+            start + boundary_match.start()
+            if boundary_match is not None
+            else None
+        )
+
+        ends = [
+            position
+            for position in (next_code, boundary)
+            if position is not None and position > start
+        ]
+        if not ends:
+            # The last event block is still arriving.
+            tail = buffer[start:]
+            if len(tail) > 65536:
+                tail = tail[-16384:]
+            return events, tail
+
+        end = min(ends)
+        event = _parse_cgi_event(buffer[start:end].strip())
+        if event is not None:
+            events.append(event)
+
+        cursor = end
+        if cursor >= len(buffer):
+            return events, ""
+
+
 def _contains_human(value: Any) -> bool:
     """Look for explicit human/person classification in nested event data."""
     if isinstance(value, str):
@@ -152,7 +234,7 @@ def _contains_human(value: Any) -> bool:
 
 
 class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
-    """Track RP7 live events from every local transport we can prove."""
+    """Track RP7 events using native camera push plus fallbacks."""
 
     def __init__(
         self,
@@ -179,11 +261,13 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         self.attach_sid: Any | None = None
 
         self.last_raw: dict[str, Any] = {}
-        self.stream_status = "stopped"
-        self._event_task: asyncio.Task[None] | None = None
+        self.stream_status = "polling"
+        self.cgi_status = "stopped"
+        self.subscribe_status = "stopped"
+        self._cgi_task: asyncio.Task[None] | None = None
+        self._subscribe_task: asyncio.Task[None] | None = None
 
-        # A HTTP 200 from an OEM SubscribeNotify path is NOT enough to call the
-        # stream healthy. Only a real client.notifyEventStream message proves it.
+        # Only a real event can make a push source authoritative.
         self._push_canonicals: set[str] = set()
 
         self._onvif_unsub: Callable[[], None] | None = None
@@ -200,8 +284,20 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
             "VideoBlind": False,
         }
 
+    def _refresh_stream_status(self) -> None:
+        if self.cgi_status == "streaming":
+            self.stream_status = "cgi_streaming"
+        elif self.subscribe_status == "streaming":
+            self.stream_status = "subscribe_streaming"
+        elif self.cgi_status == "open_no_events":
+            self.stream_status = "cgi_open_no_events"
+        elif self.subscribe_status == "open_no_events":
+            self.stream_status = "subscribe_open_no_events"
+        else:
+            self.stream_status = "polling"
+
     async def async_attach(self) -> None:
-        """Activate the RPC2 event manager for the current login."""
+        """Activate RPC2 event manager for the current login."""
         data = await self.client.async_rpc(
             "eventManager.attach",
             {"codes": ["All"]},
@@ -211,22 +307,25 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         self._attached = True
         self._attached_generation = self.client.auth_generation
         self.last_raw["eventManager.attach"] = data
-        _LOGGER.debug("RP7 event manager attached; SID=%r", self.attach_sid)
 
     async def async_start_listener(self) -> None:
-        """Start local event transports."""
+        """Start every non-destructive local event transport."""
         self._async_start_onvif_mirror()
 
-        if self._event_task is not None and not self._event_task.done():
-            return
-        self._event_task = self.hass.async_create_task(
-            self._async_event_listener(),
-            f"{DOMAIN} SubscribeNotify",
-        )
+        if self._cgi_task is None or self._cgi_task.done():
+            self._cgi_task = self.hass.async_create_task(
+                self._async_cgi_event_listener(),
+                f"{DOMAIN} eventManager.cgi",
+            )
+
+        if self._subscribe_task is None or self._subscribe_task.done():
+            self._subscribe_task = self.hass.async_create_task(
+                self._async_subscribe_event_listener(),
+                f"{DOMAIN} SubscribeNotify",
+            )
 
     def _classify_onvif_entity(self, label: str) -> str | None:
         value = label.lower()
-
         if any(word in value for word in ("human", "person", "pedestrian")):
             return "SmartMotionHuman"
         if any(word in value for word in ("tamper", "blind", "cover")):
@@ -324,13 +423,16 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         }
 
     async def async_stop_listener(self) -> None:
-        if self._event_task is not None:
-            self._event_task.cancel()
+        for task_name in ("_cgi_task", "_subscribe_task"):
+            task = getattr(self, task_name)
+            if task is None:
+                continue
+            task.cancel()
             try:
-                await self._event_task
+                await task
             except asyncio.CancelledError:
                 pass
-            self._event_task = None
+            setattr(self, task_name, None)
 
         if self._onvif_unsub is not None:
             self._onvif_unsub()
@@ -339,6 +441,9 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         for task in self._pulse_clear_tasks.values():
             task.cancel()
         self._pulse_clear_tasks.clear()
+
+        self.cgi_status = "stopped"
+        self.subscribe_status = "stopped"
         self.stream_status = "stopped"
 
     async def _async_clear_pulse(self, canonical: str) -> None:
@@ -371,16 +476,26 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
 
         self.async_set_updated_data(dict(self._live_states))
 
-    def _handle_event(self, event: dict[str, Any]) -> None:
-        code = str(event.get("Code") or "")
-        action = str(event.get("Action") or "Pulse")
-        data = event.get("Data")
+    def _handle_event(
+        self,
+        event: dict[str, Any],
+        *,
+        transport: str,
+    ) -> None:
+        code = str(event.get("Code") or event.get("code") or "")
+        action = str(
+            event.get("Action")
+            or event.get("action")
+            or "Pulse"
+        )
+        data = event.get("Data", event.get("data"))
 
         if not code:
             return
 
         self.discovered_event_codes.add(code)
-        self.last_raw[f"notify:{code}"] = event
+        self.last_raw[f"{transport}:{code}"] = event
+        self.last_raw["last_event_transport"] = transport
 
         action_lower = action.lower()
         active = action_lower != "stop"
@@ -407,15 +522,74 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         if not isinstance(event_list, list):
             return
 
-        # This is the point where the push transport is actually proven.
-        self.stream_status = "streaming"
+        self.subscribe_status = "streaming"
+        self._refresh_stream_status()
         self.last_raw["last_notify"] = message
+
         for event in event_list:
             if isinstance(event, dict):
-                self._handle_event(event)
+                self._handle_event(event, transport="subscribe")
 
-    async def _async_event_listener(self) -> None:
-        """Probe the OEM push stream without letting it mask RPC2 polling."""
+    async def _async_cgi_event_listener(self) -> None:
+        """Consume the native camera multipart eventManager.cgi stream."""
+        retry_delay = 2.0
+
+        while True:
+            response = None
+            try:
+                response = await self.client.async_open_cgi_event_stream()
+                self.cgi_status = "open_no_events"
+                self._refresh_stream_status()
+                self.last_raw["eventManager.cgi"] = {
+                    "status": response.status,
+                    "content_type": response.headers.get("Content-Type"),
+                }
+                retry_delay = 2.0
+                buffer = ""
+
+                async for chunk in response.content.iter_any():
+                    if not chunk:
+                        continue
+
+                    buffer += chunk.decode("utf-8", errors="ignore")
+                    events, buffer = _extract_cgi_events(buffer)
+
+                    for event in events:
+                        self.cgi_status = "streaming"
+                        self._refresh_stream_status()
+                        self._handle_event(event, transport="cgi")
+
+                if self.cgi_status != "streaming":
+                    self.cgi_status = "closed_no_events"
+                else:
+                    self.cgi_status = "disconnected"
+                self._refresh_stream_status()
+
+            except asyncio.CancelledError:
+                raise
+            except (
+                TendaRpcAuthError,
+                TendaRpcConnectionError,
+                OSError,
+            ) as err:
+                self.cgi_status = "error"
+                self._refresh_stream_status()
+                self.last_raw["eventManager.cgi"] = {
+                    "error": str(err),
+                }
+                _LOGGER.debug(
+                    "RP7 eventManager.cgi unavailable: %s",
+                    err,
+                )
+            finally:
+                if response is not None:
+                    response.close()
+
+            await asyncio.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, 30.0)
+
+    async def _async_subscribe_event_listener(self) -> None:
+        """Keep the OEM SubscribeNotify experiment as a secondary transport."""
         retry_delay = 2.0
 
         while True:
@@ -428,22 +602,26 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
                     await self.async_attach()
 
                 response = await self.client.async_open_event_stream()
-                self.stream_status = "open_no_events"
+                self.subscribe_status = "open_no_events"
+                self._refresh_stream_status()
                 retry_delay = 2.0
                 buffer = ""
 
                 async for chunk in response.content.iter_any():
                     if not chunk:
                         continue
+
                     buffer += chunk.decode("utf-8", errors="ignore")
                     messages, buffer = _extract_json_objects(buffer)
                     for message in messages:
                         self._handle_notification(message)
 
-                if self.stream_status != "streaming":
-                    self.stream_status = "closed_no_events"
+                if self.subscribe_status != "streaming":
+                    self.subscribe_status = "closed_no_events"
                 else:
-                    self.stream_status = "disconnected"
+                    self.subscribe_status = "disconnected"
+                self._refresh_stream_status()
+
             except asyncio.CancelledError:
                 raise
             except (
@@ -452,9 +630,11 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
                 TendaRpcResponseError,
                 OSError,
             ) as err:
-                self.stream_status = "error"
-                self.last_raw["SubscribeNotify"] = {"error": str(err)}
-                _LOGGER.debug("RP7 SubscribeNotify unavailable: %s", err)
+                self.subscribe_status = "error"
+                self._refresh_stream_status()
+                self.last_raw["SubscribeNotify"] = {
+                    "error": str(err),
+                }
             finally:
                 if response is not None:
                     response.close()
@@ -463,12 +643,7 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
             retry_delay = min(retry_delay * 2, 30.0)
 
     async def _async_event_active(self, code: str) -> bool | None:
-        """Read one RPC2 event index snapshot.
-
-        Do not permanently blacklist a code after one refusal. OEM cameras can
-        transiently refuse event queries under load, and a one-shot blacklist
-        makes a valid sensor stay dead until Home Assistant restarts.
-        """
+        """Read one RPC2 event-index snapshot."""
         try:
             data = await self.client.async_rpc(
                 "eventManager.getEventIndexes",
@@ -499,7 +674,7 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
         return active
 
     async def _async_update_data(self) -> dict[str, bool | None]:
-        """Poll event indexes and merge them with proven push/ONVIF events."""
+        """Merge proven push events, ONVIF and RPC2 polling."""
         try:
             if (
                 self._attach_supported
@@ -524,8 +699,6 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
 
             self.last_raw["event_index_values"] = polled_by_code
 
-            # Collapse aliases. A true from any alias wins. False is only used
-            # when at least one alias answered and no alias is active.
             collapsed: dict[str, bool | None] = {
                 canonical: None for canonical in EVENT_CODES
             }
@@ -540,8 +713,6 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
                 if value is None:
                     continue
 
-                # A real push event or a matching ONVIF entity is authoritative
-                # for that canonical sensor. Otherwise RPC2 snapshots drive it.
                 if canonical in self._push_canonicals:
                     continue
                 if self.onvif_sources.get(canonical):
@@ -550,6 +721,7 @@ class TendaEventCoordinator(DataUpdateCoordinator[dict[str, bool | None]]):
                 self._live_states[canonical] = value
 
             return dict(self._live_states)
+
         except (
             TendaRpcAuthError,
             TendaRpcConnectionError,
