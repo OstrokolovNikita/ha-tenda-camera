@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.8.3b1 — TEST / PRE-RELEASE (not stable)
+
+- Based strictly on stable v0.8.1 (commit `29bc130c`); does **not** reincorporate rejected v0.8.2 fullscreen modifications.
+- Add read-only discovery of ports 9002 (WebSocket candidate) and 8000 (proprietary TCP service).
+- Attempt anonymous WebSocket handshake on the root path and count incoming frames; report sanitized diagnostic attributes under `transport_probe`.
+- Do not alter motion/person semantics yet: no event transport has been proven, so this build is for diagnostics only.
+- No changes to video, H.265, PTZ, fullscreen, landscape, pinch zoom, or switches.
+- Stable channel stays at v0.8.1; v0.8.2 was rejected and must not be published as stable.
+
 ## v0.8.1
 
 - Fix fullscreen camera layout regression on desktop and mobile.
