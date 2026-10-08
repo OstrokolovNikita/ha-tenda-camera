@@ -392,59 +392,68 @@ class TendaCameraCard extends HTMLElement {
 
   async _ensureFullscreenCameraCard(state) {
     const host = this.shadowRoot?.querySelector(".fullscreen-camera-host");
-    if (!host || !state || !this._hass) return;
-
-    const aspectRatio = "16:9";
+    if (!host || !state) return;
 
     if (
       this._fullscreenCameraCard &&
-      this._fullscreenCameraEntity === state.entity_id &&
-      this._fullscreenAspectRatio === aspectRatio
+      this._fullscreenCameraEntity === state.entity_id
     ) {
-      this._fullscreenCameraCard.hass = this._hass;
+      // ha-camera-stream consumes HA frontend contexts directly. Updating
+      // stateObj is enough to keep the stream current without rebuilding it.
+      this._fullscreenCameraCard.stateObj = state;
       return;
     }
 
     const generation = ++this._fullscreenCameraGeneration;
 
     try {
-      if (typeof window.loadCardHelpers !== "function") {
-        throw new Error("Home Assistant card helpers are unavailable");
+      // The dashboard preview already loads Home Assistant's camera elements.
+      // If fullscreen is opened unusually early, wait for the native stream
+      // component instead of wrapping it in picture-entity. The old wrapper
+      // injected a 16:9 padding box after the video loaded and could shove the
+      // picture into the lower half of the fullscreen viewport.
+      if (!customElements.get("ha-camera-stream")) {
+        if (typeof window.loadCardHelpers !== "function") {
+          throw new Error("Home Assistant card helpers are unavailable");
+        }
+        await window.loadCardHelpers();
+
+        // Creating a throwaway picture-entity asks HA to load hui-image and
+        // ha-camera-stream on frontend builds where those elements are lazy.
+        const helpers = await window.loadCardHelpers();
+        helpers.createCardElement({
+          type: "picture-entity",
+          entity: state.entity_id,
+          camera_image: state.entity_id,
+          camera_view: "live",
+          show_name: false,
+          show_state: false,
+        });
+
+        await customElements.whenDefined("ha-camera-stream");
       }
 
-      const helpers = await window.loadCardHelpers();
       if (generation !== this._fullscreenCameraGeneration) return;
 
-      const card = helpers.createCardElement({
-        type: "picture-entity",
-        entity: state.entity_id,
-        camera_image: state.entity_id,
-        camera_view: "live",
-        show_name: false,
-        show_state: false,
-        fit_mode: "contain",
-        aspect_ratio: aspectRatio,
-        tap_action: { action: "none" },
-        hold_action: { action: "none" },
-      });
+      const stream = document.createElement("ha-camera-stream");
+      stream.stateObj = state;
+      stream.fitMode = "contain";
+      stream.muted = true;
+      stream.controls = false;
+      stream.allowExoPlayer = true;
+      stream.style.position = "absolute";
+      stream.style.inset = "0";
+      stream.style.width = "100%";
+      stream.style.height = "100%";
+      stream.style.display = "block";
+      stream.style.background = "#000";
 
-      card.hass = this._hass;
-      card.style.width = "100%";
-      card.style.height = "100%";
-      card.style.display = "block";
-      card.style.background = "#000";
-      card.style.setProperty("--ha-card-background", "#000");
-      card.style.setProperty("--card-background-color", "#000");
-      card.style.setProperty("--ha-card-border-radius", "0px");
-      card.style.setProperty("--ha-card-box-shadow", "none");
-
-      host.replaceChildren(card);
-      this._fullscreenCameraCard = card;
+      host.replaceChildren(stream);
+      this._fullscreenCameraCard = stream;
       this._fullscreenCameraEntity = state.entity_id;
-      this._fullscreenAspectRatio = aspectRatio;
-      this._scheduleFullscreenFill(card);
+      this._fullscreenAspectRatio = null;
     } catch (err) {
-      console.error("Tenda Camera: failed to mount fullscreen live card", err);
+      console.error("Tenda Camera: failed to mount fullscreen live stream", err);
       host.textContent = "Не удалось открыть основной поток";
       host.style.color = "white";
       host.style.display = "grid";
@@ -1048,7 +1057,9 @@ class TendaCameraCard extends HTMLElement {
       this._nativeCameraCard.hass = this._hass;
     }
     if (this._fullscreenCameraCard) {
-      this._fullscreenCameraCard.hass = this._hass;
+      if ("stateObj" in this._fullscreenCameraCard) {
+        this._fullscreenCameraCard.stateObj = this._mainCameraState();
+      }
     }
 
     this._setActive(
