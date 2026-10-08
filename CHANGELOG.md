@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.8.2
+
+- Fix fullscreen image drifting down on desktop and mobile.
+- Stop centering the 16:9 media surface with CSS translate transforms.
+- Anchor the fullscreen media to the top edge and calculate its horizontal offset explicitly from the current landscape viewport.
+- Keep height-fit, black side bars on wide screens, pinch zoom, forced landscape and PTZ unchanged.
+- No event-transport changes.
+
 ## v0.8.1
 
 - Fix fullscreen camera layout regression on desktop and mobile.
