@@ -77,6 +77,11 @@ class TendaTransportProbe:
             "tcp_8000": "pending",
             "ws_root_9002": "pending",
             "ws_messages": 0,
+            "ws_connection_count": 0,
+            "ws_connected_utc": None,
+            "ws_close_code": None,
+            "ws_close_frame_type": None,
+            "ws_lifetime_ms": None,
             "ws_last_message": None,
             "ws_last_message_utc": None,
             "last_probe_utc": None,
@@ -141,7 +146,15 @@ class TendaTransportProbe:
                         ),
                         timeout=5,
                     )
-                    self._set(ws_root_9002=f"connected_{scheme}")
+                    connected_at = asyncio.get_running_loop().time()
+                    self._set(
+                        ws_root_9002=f"connected_{scheme}",
+                        ws_connection_count=self.details["ws_connection_count"] + 1,
+                        ws_connected_utc=_timestamp(),
+                        ws_close_code=None,
+                        ws_close_frame_type=None,
+                        ws_lifetime_ms=None,
+                    )
                     async with websocket:
                         until = asyncio.get_running_loop().time() + 90
                         while asyncio.get_running_loop().time() < until:
@@ -167,9 +180,26 @@ class TendaTransportProbe:
                                 aiohttp.WSMsgType.CLOSING,
                                 aiohttp.WSMsgType.ERROR,
                             ):
-                                self._set(ws_root_9002=f"closed_{scheme}")
+                                code = websocket.close_code
+                                if message.type is aiohttp.WSMsgType.CLOSE:
+                                    # Received CLOSE frame contains a numeric status.
+                                    code = message.data if isinstance(message.data, int) else code
+                                self._set(
+                                    ws_root_9002=f"closed_{scheme}",
+                                    ws_close_code=code,
+                                    ws_close_frame_type=message.type.name,
+                                    ws_lifetime_ms=round(
+                                        (asyncio.get_running_loop().time() - connected_at) * 1000
+                                    ),
+                                )
                                 return
-                    self._set(ws_root_9002=f"observed_90s_{scheme}")
+                    self._set(
+                        ws_root_9002=f"observed_90s_{scheme}",
+                        ws_close_code=websocket.close_code,
+                        ws_lifetime_ms=round(
+                            (asyncio.get_running_loop().time() - connected_at) * 1000
+                        ),
+                    )
                     return
                 except asyncio.CancelledError:
                     raise
