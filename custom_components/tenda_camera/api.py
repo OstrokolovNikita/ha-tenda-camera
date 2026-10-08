@@ -105,6 +105,16 @@ class TendaRpcClient:
         return self._host
 
     @property
+    def session(self) -> aiohttp.ClientSession:
+        """Return the existing HTTP session for read-only transport diagnostics."""
+        return self._session
+
+    @property
+    def ssl_context(self) -> ssl.SSLContext | None:
+        """Return the configured TLS context for the camera."""
+        return self._ssl
+
+    @property
     def auth_generation(self) -> int:
         """Return a counter that changes after every successful login."""
         return self._auth_generation
