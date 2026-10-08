@@ -133,6 +133,9 @@ class TendaEventStatusSensor(TendaCameraEntity, SensorEntity):
             "supported_codes": sorted(
                 self._event_coordinator.supported_codes
             ),
+            "indeterminate_codes": sorted(
+                self._event_coordinator.indeterminate_codes
+            ),
             "unsupported_codes": sorted(
                 self._event_coordinator.unsupported_codes
             ),
