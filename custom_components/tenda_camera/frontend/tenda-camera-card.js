@@ -173,8 +173,11 @@ class TendaCameraCard extends HTMLElement {
     // height. On 20:9/21:9 phones this leaves black side bars by design:
     // the whole frame stays visible vertically with no top/bottom crop.
     if (media) {
+      const mediaWidth = Math.round((height * 16) / 9);
       media.style.height = `${height}px`;
-      media.style.width = `${Math.round((height * 16) / 9)}px`;
+      media.style.width = `${mediaWidth}px`;
+      media.style.top = "0px";
+      media.style.left = `${Math.round((width - mediaWidth) / 2)}px`;
     }
   }
 
@@ -609,11 +612,11 @@ class TendaCameraCard extends HTMLElement {
         .fullscreen-media {
           --zoom: 1;
           position: absolute;
-          left: 50%;
-          top: 50%;
+          left: 0;
+          top: 0;
           height: 100%;
           aspect-ratio: 16 / 9;
-          transform: translate(-50%, -50%) scale(var(--zoom));
+          transform: scale(var(--zoom));
           transform-origin: center center;
           background: #000;
           overflow: hidden;
