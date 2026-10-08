@@ -34,6 +34,8 @@ async def async_get_config_entry_diagnostics(
         "event_data": event_coordinator.data,
         "event_attach_sid": event_coordinator.attach_sid,
         "event_stream_status": event_coordinator.stream_status,
+        "event_cgi_status": event_coordinator.cgi_status,
+        "event_subscribe_status": event_coordinator.subscribe_status,
         "event_discovered_codes": sorted(event_coordinator.discovered_event_codes),
         "event_onvif_sources": {
             key: list(value)
