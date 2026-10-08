@@ -179,7 +179,7 @@ async def async_setup_entry(
     coordinator = TendaCoordinator(hass, client, device_info)
     await coordinator.async_config_entry_first_refresh()
 
-    event_coordinator = TendaEventCoordinator(hass, client, device_info)
+    event_coordinator = TendaEventCoordinator(hass, client, device_info, entry.entry_id)
     await event_coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = TendaRuntimeData(
